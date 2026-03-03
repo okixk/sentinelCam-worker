@@ -1,14 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+CFG_FILE="${CFG_FILE:-$SCRIPT_DIR/webcam.properties}"
+
+if [[ ! -f "$CFG_FILE" ]]; then
+  echo "ERROR: Shared config not found: $CFG_FILE" >&2
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090
+. "$CFG_FILE"
+set +a
+
 # Everything generated goes here (easy to .gitignore):
-RUNTIME_DIR=".runtime"
-VENV_DIR="$RUNTIME_DIR/venv"
-ULTRA_CFG_DIR="$RUNTIME_DIR/ultralytics_config"
-WEIGHTS_DIR="$RUNTIME_DIR/weights"
-RUNS_DIR="$RUNTIME_DIR/runs"
-DATASETS_DIR="$RUNTIME_DIR/datasets"
-PIP_CACHE_DIR_LOCAL="$RUNTIME_DIR/pip-cache"
+RUNTIME_DIR="${RUNTIME_DIR:-.runtime}"
+VENV_SUBDIR="${VENV_SUBDIR:-venv}"
+ULTRA_CFG_SUBDIR="${ULTRA_CFG_SUBDIR:-ultralytics_config}"
+WEIGHTS_SUBDIR="${WEIGHTS_SUBDIR:-weights}"
+RUNS_SUBDIR="${RUNS_SUBDIR:-runs}"
+DATASETS_SUBDIR="${DATASETS_SUBDIR:-datasets}"
+PIP_CACHE_SUBDIR="${PIP_CACHE_SUBDIR:-pip-cache}"
+
+VENV_DIR="$RUNTIME_DIR/$VENV_SUBDIR"
+ULTRA_CFG_DIR="$RUNTIME_DIR/$ULTRA_CFG_SUBDIR"
+WEIGHTS_DIR="$RUNTIME_DIR/$WEIGHTS_SUBDIR"
+RUNS_DIR="$RUNTIME_DIR/$RUNS_SUBDIR"
+DATASETS_DIR="$RUNTIME_DIR/$DATASETS_SUBDIR"
+PIP_CACHE_DIR_LOCAL="$RUNTIME_DIR/$PIP_CACHE_SUBDIR"
 
 # Build deps; safe even if not needed.
 APT_PKGS=(python3 python3-pip python3-venv git ffmpeg v4l-utils libgl1 build-essential python3-dev)
@@ -17,9 +39,6 @@ APT_PKGS=(python3 python3-pip python3-venv git ffmpeg v4l-utils libgl1 build-ess
 VCAM_APT_PKGS=(v4l2loopback-dkms dkms "linux-headers-$(uname -r)")
 # Preinstall lap so Ultralytics doesn't try system pip (PEP 668)
 PIP_PKGS=(ultralytics opencv-python numpy "lap>=0.5.12")
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
 
 log()  { printf '%s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
@@ -197,10 +216,10 @@ main() {
   # Anything else is forwarded to webcam.py
   # ---------------------------
   local VCAM=0
-  local VCAM_INPUT="testsrc"
-  local VCAM_NR=42
-  local VCAM_SIZE="1280x720"
-  local VCAM_FPS=30
+  local VCAM_INPUT="${VCAM_DEFAULT_INPUT:-testsrc}"
+  local VCAM_NR="${VCAM_DEFAULT_NR:-42}"
+  local VCAM_SIZE="${VCAM_DEFAULT_SIZE:-1280x720}"
+  local VCAM_FPS="${VCAM_DEFAULT_FPS:-30}"
   local FORWARD=()
 
   while [[ $# -gt 0 ]]; do
@@ -249,7 +268,7 @@ EOF
   done
 
   # Default source is camera 0 unless user provided --source
-  local SRC_DEFAULT="0"
+  local SRC_DEFAULT="${DEFAULT_SOURCE_LINUX:-0}"
 
   # If --vcam, create /dev/videoNN and feed it. Unless user already set --source.
   if [[ "$VCAM" == "1" ]]; then
@@ -277,13 +296,13 @@ EOF
     FORWARD=("--source" "$SRC_DEFAULT" "${FORWARD[@]}")
   fi
   if ! has_arg "--device" "${FORWARD[@]}"; then
-    FORWARD=("--device" "auto" "${FORWARD[@]}")
+    FORWARD=("--device" "${DEFAULT_DEVICE:-auto}" "${FORWARD[@]}")
   fi
   if ! has_arg "--max-fps" "${FORWARD[@]}"; then
-    FORWARD+=("--max-fps" "120")
+    FORWARD+=("--max-fps" "${DEFAULT_MAX_FPS:-120}")
   fi
   # Keep pose on by default, unless user explicitly disables it via --no-pose
-  if ! has_arg "--no-pose" "${FORWARD[@]}" && ! has_arg "--use-pose" "${FORWARD[@]}"; then
+  if [[ "${DEFAULT_USE_POSE:-1}" == "1" ]] && ! has_arg "--no-pose" "${FORWARD[@]}" && ! has_arg "--use-pose" "${FORWARD[@]}"; then
     FORWARD+=("--use-pose")
   fi
 
