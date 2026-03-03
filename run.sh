@@ -32,8 +32,12 @@ RUNS_DIR="$RUNTIME_DIR/$RUNS_SUBDIR"
 DATASETS_DIR="$RUNTIME_DIR/$DATASETS_SUBDIR"
 PIP_CACHE_DIR_LOCAL="$RUNTIME_DIR/$PIP_CACHE_SUBDIR"
 
+OS_NAME="$(uname -s)"
+ARCH_NAME="$(uname -m)"
+
 # Build deps; safe even if not needed.
 APT_PKGS=(python3 python3-pip python3-venv git ffmpeg v4l-utils libgl1 build-essential python3-dev)
+BREW_PKGS=(python ffmpeg git)
 
 # Optional vcam deps (only installed when you pass --vcam)
 VCAM_APT_PKGS=(v4l2loopback-dkms dkms "linux-headers-$(uname -r)")
@@ -44,6 +48,17 @@ log()  { printf '%s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+prefer_brew_on_path() {
+  if [[ "$OS_NAME" == "Darwin" ]] && need_cmd brew; then
+    local brew_prefix=""
+    brew_prefix="$(brew --prefix 2>/dev/null || true)"
+    if [[ -n "$brew_prefix" && -d "$brew_prefix/bin" ]]; then
+      export PATH="$brew_prefix/bin:$brew_prefix/sbin:$PATH"
+      hash -r
+    fi
+  fi
+}
 
 ensure_apt_pkgs() {
   need_cmd apt-get || die "apt-get not found. Ubuntu/Debian only."
@@ -60,14 +75,50 @@ ensure_apt_pkgs() {
   fi
 }
 
+ensure_brew_pkgs() {
+  need_cmd brew || die "Homebrew not found. Install Homebrew first (Apple Silicon usually uses /opt/homebrew, Intel uses /usr/local)."
+  prefer_brew_on_path
+
+  local missing=()
+  for p in "${BREW_PKGS[@]}"; do
+    brew list --formula "$p" >/dev/null 2>&1 || missing+=("$p")
+  done
+
+  if ((${#missing[@]})); then
+    warn "Installing missing Homebrew packages: ${missing[*]}"
+    brew update
+    brew install "${missing[@]}"
+  else
+    log "Homebrew packages: OK"
+  fi
+
+  prefer_brew_on_path
+}
+
+ensure_system_pkgs() {
+  case "$OS_NAME" in
+    Linux) ensure_apt_pkgs ;;
+    Darwin) ensure_brew_pkgs ;;
+    *) die "Unsupported OS: $OS_NAME (Linux and macOS are supported)." ;;
+  esac
+}
+
 ensure_runtime_dirs() {
   mkdir -p "$RUNTIME_DIR" "$ULTRA_CFG_DIR" "$WEIGHTS_DIR" "$RUNS_DIR" "$DATASETS_DIR" "$PIP_CACHE_DIR_LOCAL"
 }
 
 ensure_venv() {
+  prefer_brew_on_path
+
+  local py_bin="python3"
+  if [[ "$OS_NAME" == "Darwin" ]]; then
+    py_bin="$(command -v python3 || true)"
+    [[ -n "$py_bin" ]] || die "python3 not found after Homebrew setup"
+  fi
+
   if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     log "Creating venv in: $VENV_DIR"
-    python3 -m venv "$VENV_DIR"
+    "$py_bin" -m venv "$VENV_DIR"
   fi
 
   # Make venv "active" for subprocesses too (Ultralytics calls pip via subprocess)
@@ -115,6 +166,16 @@ cleanup_root_weights() {
 
 check_camera() {
   log "Camera check:"
+
+  if [[ "$OS_NAME" == "Darwin" ]]; then
+    if need_cmd ffmpeg; then
+      ffmpeg -hide_banner -f avfoundation -list_devices true -i "" </dev/null 2>&1 || true
+    else
+      warn "ffmpeg not found."
+    fi
+    return 0
+  fi
+
   if need_cmd v4l2-ctl; then
     v4l2-ctl --list-devices || true
   else
@@ -151,6 +212,8 @@ has_arg() {
 
 start_vcam() {
   # Creates a v4l2loopback device (default /dev/video42) and feeds it with ffmpeg.
+  [[ "$OS_NAME" == "Linux" ]] || die "--vcam is Linux-only (uses v4l2loopback). On macOS, use OBS Studio Virtual Camera or Continuity Camera."
+
   local video_nr="$1"
   local input="$2"   # "testsrc" or a file/url
   local size="$3"    # e.g. 1280x720
@@ -189,19 +252,30 @@ start_vcam() {
 }
 
 select_ultralytics_device() {
-  # Ultralytics device arg: '0' for CUDA GPU #0, or 'cpu'
-  # Fallback to CPU if CUDA isn't available.
-  local use_cuda
-  use_cuda="$(python - <<'PY'
-import torch
-print("1" if torch.cuda.is_available() else "0")
+  # Ultralytics device arg:
+  #   - '0'   -> CUDA GPU #0
+  #   - 'mps' -> Apple Silicon Metal backend
+  #   - 'cpu' -> CPU fallback
+  local detected
+  detected="$(python - <<'PY'
+try:
+    import torch
+except Exception:
+    print("cpu")
+    raise SystemExit
+
+try:
+    if torch.cuda.is_available():
+        print("0")
+    elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        print("mps")
+    else:
+        print("cpu")
+except Exception:
+    print("cpu")
 PY
 )"
-  if [[ "$use_cuda" == "1" ]]; then
-    echo "0"
-  else
-    echo "cpu"
-  fi
+  echo "$detected"
 }
 
 main() {
@@ -220,7 +294,7 @@ main() {
   local VCAM_NR="${VCAM_DEFAULT_NR:-42}"
   local VCAM_SIZE="${VCAM_DEFAULT_SIZE:-1280x720}"
   local VCAM_FPS="${VCAM_DEFAULT_FPS:-30}"
-  local FORWARD=()
+  local -a FORWARD=()
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -241,6 +315,7 @@ Examples:
   ./run.sh --vcam --vcam-input demo.mp4  # feeds demo.mp4 into /dev/video42 and uses it
 
 Tip (cross-platform): OBS Studio (open source) has a built-in Virtual Camera.
+Note: On macOS, this script uses Homebrew for system deps and prefers Apple Silicon (MPS) when available.
 EOF
         exit 0
         ;;
@@ -248,7 +323,7 @@ EOF
     esac
   done
 
-  ensure_apt_pkgs
+  ensure_system_pkgs
   ensure_runtime_dirs
   ensure_venv
   install_pip_deps
@@ -268,11 +343,16 @@ EOF
   done
 
   # Default source is camera 0 unless user provided --source
-  local SRC_DEFAULT="${DEFAULT_SOURCE_LINUX:-0}"
+  local SRC_DEFAULT="0"
+  if [[ "$OS_NAME" == "Darwin" ]]; then
+    SRC_DEFAULT="${DEFAULT_SOURCE_MACOS:-${DEFAULT_SOURCE_LINUX:-0}}"
+  else
+    SRC_DEFAULT="${DEFAULT_SOURCE_LINUX:-0}"
+  fi
 
   # If --vcam, create /dev/videoNN and feed it. Unless user already set --source.
   if [[ "$VCAM" == "1" ]]; then
-    if has_arg "--source" "${FORWARD[@]}"; then
+    if ((${#FORWARD[@]})) && has_arg "--source" "${FORWARD[@]}"; then
       warn "--vcam requested, but you already passed --source; not overriding source."
     else
       vcam_dev="$(start_vcam "$VCAM_NR" "$VCAM_INPUT" "$VCAM_SIZE" "$VCAM_FPS")"
@@ -283,20 +363,28 @@ EOF
 
   ULTRA_DEVICE="$(select_ultralytics_device)"
   if [[ "$ULTRA_DEVICE" == "0" ]]; then
-    log "torch.cuda.is_available(): True  (device=0)"
+    log "Accelerator check: CUDA available (device=0)"
+  elif [[ "$ULTRA_DEVICE" == "mps" ]]; then
+    log "Accelerator check: Apple Metal available (device=mps)"
   else
-    warn "torch.cuda.is_available(): False (device=cpu)"
+    warn "Accelerator check: no GPU backend detected (device=cpu)"
   fi
 
   # webcam.py defaults:
   #   --preset yolo   (CPU->yolov8n, GPU->yolo26x)
   #   --device auto   (will pick CUDA if available)
   # so we only pass the device + sensible defaults here.
-  if ! has_arg "--source" "${FORWARD[@]}"; then
+  if ((${#FORWARD[@]} == 0)); then
+    FORWARD=("--source" "$SRC_DEFAULT")
+  elif ! has_arg "--source" "${FORWARD[@]}"; then
     FORWARD=("--source" "$SRC_DEFAULT" "${FORWARD[@]}")
   fi
   if ! has_arg "--device" "${FORWARD[@]}"; then
-    FORWARD=("--device" "${DEFAULT_DEVICE:-auto}" "${FORWARD[@]}")
+    local default_device="${DEFAULT_DEVICE:-auto}"
+    if [[ "$default_device" == "auto" ]]; then
+      default_device="$ULTRA_DEVICE"
+    fi
+    FORWARD=("--device" "$default_device" "${FORWARD[@]}")
   fi
   if ! has_arg "--max-fps" "${FORWARD[@]}"; then
     FORWARD+=("--max-fps" "${DEFAULT_MAX_FPS:-120}")
