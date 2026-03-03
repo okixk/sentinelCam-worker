@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import sys
 import time
 import shutil
@@ -196,8 +197,6 @@ def _open_capture(source: str, width: int, height: int):
 # -----------------------------
 # Presets / device selection
 # -----------------------------
-
-
 def _cuda_available() -> bool:
     try:
         return bool(torch is not None and torch.cuda.is_available())
@@ -221,7 +220,11 @@ def resolve_device(device_arg: str) -> str:
 
 
 def _ultra_weights_dir() -> Optional[str]:
-    """Best-effort get Ultralytics weights_dir (configured by run.sh/run.bat)."""
+    """Best-effort get Ultralytics weights_dir.
+
+    Prefer Ultralytics settings, but if only YOLO_CONFIG_DIR is set
+    (common in launcher scripts), fall back to <YOLO_CONFIG_DIR>/weights.
+    """
     try:
         from ultralytics import settings  # type: ignore
         wd = settings.get("weights_dir") if hasattr(settings, "get") else None
@@ -229,6 +232,11 @@ def _ultra_weights_dir() -> Optional[str]:
             return wd
     except Exception:
         pass
+
+    ycd = os.environ.get("YOLO_CONFIG_DIR")
+    if ycd:
+        return os.path.join(ycd, "weights")
+
     return None
 
 
@@ -266,14 +274,62 @@ def _legacy_ultra_weight_dirs() -> List[str]:
     return out
 
 
+def _is_path_like(s: str) -> bool:
+    return bool(os.path.isabs(s) or os.sep in s or (os.path.altsep and os.path.altsep in s))
+
+
+def _promote_weight_to_runtime(ref: Optional[str]) -> Optional[str]:
+    """If a bare-name weight was downloaded into cwd/script dir, move it into weights_dir."""
+    if not ref:
+        return ref
+
+    s = str(ref).strip()
+    if not s or _is_path_like(s):
+        return s
+
+    wd = _ultra_weights_dir()
+    if not wd:
+        return s
+
+    try:
+        os.makedirs(wd, exist_ok=True)
+    except Exception:
+        return s
+
+    dst = os.path.join(wd, os.path.basename(s))
+    if os.path.exists(dst):
+        # optional cleanup of duplicate in cwd
+        src_cwd = os.path.join(os.getcwd(), s)
+        try:
+            if os.path.exists(src_cwd) and os.path.abspath(src_cwd) != os.path.abspath(dst):
+                os.remove(src_cwd)
+        except Exception:
+            pass
+        return dst
+
+    for src in (
+        os.path.join(os.getcwd(), s),
+        os.path.join(os.path.dirname(__file__), s),
+    ):
+        try:
+            if os.path.exists(src) and os.path.abspath(src) != os.path.abspath(dst):
+                shutil.move(src, dst)
+                return dst
+        except Exception:
+            pass
+
+    return s
+
+
 def resolve_weights(maybe_name_or_path: str) -> str:
     """Resolve a weights reference.
 
     If it looks like a path, return it.
     If it's a bare filename, prefer a file found in:
+      - Ultralytics weights_dir (if configured)
       - cwd
       - script directory
-      - Ultralytics weights_dir (if configured)
+      - legacy Ultralytics dirs
     Otherwise return the original string (Ultralytics may auto-download).
     """
     s = (maybe_name_or_path or "").strip()
@@ -281,11 +337,11 @@ def resolve_weights(maybe_name_or_path: str) -> str:
         return s
 
     # already a (likely) path
-    if os.path.isabs(s) or os.sep in s or (os.path.altsep and os.path.altsep in s):
+    if _is_path_like(s):
         return s
 
     candidates: List[str] = []
-    for base in (os.getcwd(), os.path.dirname(__file__), _ultra_weights_dir(), *_legacy_ultra_weight_dirs()):
+    for base in (_ultra_weights_dir(), os.getcwd(), os.path.dirname(__file__), *_legacy_ultra_weight_dirs()):
         if base:
             candidates.append(os.path.join(base, s))
 
@@ -295,7 +351,8 @@ def resolve_weights(maybe_name_or_path: str) -> str:
             # configured Ultralytics weights_dir so the next run is fast/clean.
             wd = _ultra_weights_dir()
             try:
-                if wd and os.path.isdir(wd):
+                if wd:
+                    os.makedirs(wd, exist_ok=True)
                     dst = os.path.join(wd, os.path.basename(p))
                     if os.path.abspath(p) != os.path.abspath(dst) and not os.path.exists(dst):
                         shutil.copy2(p, dst)
@@ -304,9 +361,6 @@ def resolve_weights(maybe_name_or_path: str) -> str:
             return p
 
     return s
-
-
-import re
 
 
 # Ultralytics can auto-download *public* pretrained weights when you pass the
@@ -351,7 +405,7 @@ def _ensure_weights_available(ref: str, what: str) -> None:
         return
 
     # If this is a path, it must exist.
-    is_path = os.path.isabs(ref) or os.sep in ref or (os.path.altsep and os.path.altsep in ref)
+    is_path = _is_path_like(ref)
     if is_path:
         if not os.path.exists(ref):
             raise SystemExit(f"{what} weights not found: {ref}")
@@ -663,6 +717,7 @@ def main():
 
         dw = resolve_weights(args.model) if args.model else resolve_weights(p.det)
         _ensure_weights_available(dw, "Detection")
+
         pw = None
         pm = None
         if pose_enabled:
@@ -672,8 +727,11 @@ def main():
                 pw = resolve_weights(p.pose) if p.pose else resolve_weights("yolov8n-pose.pt")
             _ensure_weights_available(pw, "Pose")
             pm = YOLO(pw)
+            pw = _promote_weight_to_runtime(pw)
 
         dm = YOLO(dw)
+        dw = _promote_weight_to_runtime(dw)
+
         return pn, dm, pm, dw, pw
 
     # Load initial
@@ -965,7 +1023,7 @@ def main():
                     _, p = pick_preset(active_preset_name, device, presets)
                     pw = resolve_weights(p.pose) if p.pose else resolve_weights("yolov8n-pose.pt")
                     pose_model = YOLO(pw)
-                    pose_weights = pw
+                    pose_weights = _promote_weight_to_runtime(pw)
                 except Exception as e:
                     print(f"Could not enable pose: {e}")
                     pose_enabled = False
