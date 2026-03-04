@@ -210,6 +210,40 @@ has_arg() {
   return 1
 }
 
+
+prompt_yes_no() {
+  # Usage: prompt_yes_no "Question" "Y"  (default Y or N)
+  local prompt="$1"
+  local def="${2:-Y}"
+  local suffix="Y/n"
+  [[ "$def" == "N" ]] && suffix="y/N"
+  local reply=""
+
+  while true; do
+    read -r -p "${prompt} [${suffix}]: " reply || reply=""
+    reply="${reply:-$def}"
+    case "$reply" in
+      Y|y) return 0 ;;
+      N|n) return 1 ;;
+      *) echo "Please answer y or n." ;;
+    esac
+  done
+}
+
+prompt_input() {
+  # Usage: val="$(prompt_input "Prompt" "default")"
+  local prompt="$1"
+  local def="${2-}"
+  local reply=""
+  if [[ -n "$def" ]]; then
+    read -r -p "${prompt} [${def}]: " reply || reply=""
+    echo "${reply:-$def}"
+  else
+    read -r -p "${prompt}: " reply || reply=""
+    echo "$reply"
+  fi
+}
+
 start_vcam() {
   # Creates a v4l2loopback device (default /dev/video42) and feeds it with ffmpeg.
   [[ "$OS_NAME" == "Linux" ]] || die "--vcam is Linux-only (uses v4l2loopback). On macOS, use OBS Studio Virtual Camera or Continuity Camera."
@@ -289,6 +323,9 @@ main() {
   #   --help                  print help
   # Anything else is forwarded to webcam.py
   # ---------------------------
+  local SILENT=0
+  local INSTALL_MODE="ask"  # ask|force|skip
+
   local VCAM=0
   local VCAM_INPUT="${VCAM_DEFAULT_INPUT:-testsrc}"
   local VCAM_NR="${VCAM_DEFAULT_NR:-42}"
@@ -303,13 +340,20 @@ main() {
       --vcam-nr) shift; VCAM_NR="${1:-42}"; shift;;
       --vcam-size) shift; VCAM_SIZE="${1:-1280x720}"; shift;;
       --vcam-fps) shift; VCAM_FPS="${1:-30}"; shift;;
+      -s|--silent) SILENT=1; shift;;
+      --install) INSTALL_MODE="force"; shift;;
+      --no-install) INSTALL_MODE="skip"; shift;;
       --help|-h)
         cat <<'EOF'
 Usage:
-  ./run.sh [--vcam [--vcam-input <file/url>] [--vcam-nr 42] [--vcam-size 1280x720] [--vcam-fps 30]] [webcam.py args...]
+  ./run.sh [-s|--silent] [--install|--no-install]
+          [--vcam [--vcam-input <file/url>] [--vcam-nr 42] [--vcam-size 1280x720] [--vcam-fps 30]]
+          [webcam.py args...]
 
 Examples:
-  ./run.sh                       # physical camera 0
+  ./run.sh                       # interactive prompts (Enter = defaults)
+  ./run.sh -s                    # silent: always defaults
+  ./run.sh --no-install          # skip setup/install step
   ./run.sh --preset yolo26x       # force GPU preset (if CUDA)
   ./run.sh --vcam                 # virtual cam with test pattern on /dev/video42
   ./run.sh --vcam --vcam-input demo.mp4  # feeds demo.mp4 into /dev/video42 and uses it
@@ -323,14 +367,57 @@ EOF
     esac
   done
 
+
+# ---------------------------
+# Interactive: setup/install?
+# ---------------------------
+local DO_INSTALL=1
+if [[ "$INSTALL_MODE" == "skip" ]]; then
+  DO_INSTALL=0
+elif [[ "$INSTALL_MODE" == "force" ]]; then
+  DO_INSTALL=1
+elif [[ "$SILENT" == "1" ]]; then
+  DO_INSTALL=1   # defaults
+else
+  if prompt_yes_no "Run setup/install step (system deps + venv + pip deps)?" "Y"; then
+    DO_INSTALL=1
+  else
+    DO_INSTALL=0
+  fi
+fi
+
+# In "no-install" mode, still try to run using an existing venv if present.
+ensure_runtime_dirs
+if [[ "$DO_INSTALL" == "1" ]]; then
   ensure_system_pkgs
-  ensure_runtime_dirs
   ensure_venv
   install_pip_deps
+else
+  warn "Skipping setup/install step (--no-install). Assuming python + deps already exist."
+  prefer_brew_on_path
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    export VIRTUAL_ENV="$SCRIPT_DIR/$VENV_DIR"
+    export PATH="$VIRTUAL_ENV/bin:$PATH"
+    export PIP_CACHE_DIR="$SCRIPT_DIR/$PIP_CACHE_DIR_LOCAL"
+    hash -r
+  fi
+  # If macOS only has python3, make 'python' available for the rest of this script.
+  if ! need_cmd python && need_cmd python3; then
+    python() { python3 "$@"; }
+  fi
+fi
 
   [[ -f "webcam.py" ]] || die "webcam.py not found in: $SCRIPT_DIR"
 
+
+# Configure Ultralytics settings to stay inside .runtime (best-effort if deps are present)
+export YOLO_CONFIG_DIR="$SCRIPT_DIR/$ULTRA_CFG_DIR"
+if python -c "import ultralytics" >/dev/null 2>&1; then
   configure_ultralytics_dirs
+else
+  warn "Ultralytics not importable yet; skipping Ultralytics settings update."
+fi
+
   cleanup_root_weights
   check_camera
 
@@ -370,7 +457,43 @@ EOF
     warn "Accelerator check: no GPU backend detected (device=cpu)"
   fi
 
-  # webcam.py defaults:
+
+
+# ---------------------------
+# Interactive: camera + preset
+# ---------------------------
+local preset_cpu="${DEFAULT_PRESET_CPU:-yolov8n}"
+local preset_accel="${DEFAULT_PRESET_ACCEL:-yolo26x}"
+local PRESET_DEFAULT="$preset_cpu"
+[[ "$ULTRA_DEVICE" != "cpu" ]] && PRESET_DEFAULT="$preset_accel"
+
+# Camera source selection (only if user didn't pass --source)
+if ! has_arg "--source" "${FORWARD[@]}"; then
+  if [[ "$SILENT" != "1" ]]; then
+    log ""
+    log "Choose camera source (press Enter for default):"
+    check_camera
+    SRC_DEFAULT="$(prompt_input "Camera source (index like 0, /dev/video0, or RTSP URL)" "$SRC_DEFAULT")"
+  fi
+fi
+
+# Model preset selection (only if user didn't pass --preset)
+if ! has_arg "--preset" "${FORWARD[@]}"; then
+  if [[ "$SILENT" == "1" ]]; then
+    FORWARD=("--preset" "$PRESET_DEFAULT" "${FORWARD[@]}")
+  else
+    log ""
+    log "Choose model preset (press Enter for default). Tip: 'yolo' = auto CPU/GPU default."
+    python webcam.py --list-presets 2>/dev/null || true
+    local chosen_preset
+    chosen_preset="$(prompt_input "Preset" "$PRESET_DEFAULT")"
+    FORWARD=("--preset" "$chosen_preset" "${FORWARD[@]}")
+  fi
+fi
+
+# ---------------------------
+# webcam.py defaults:
+
   #   --preset yolo   (CPU->yolov8n, GPU->yolo26x)
   #   --device auto   (will pick CUDA if available)
   # so we only pass the device + sensible defaults here.
