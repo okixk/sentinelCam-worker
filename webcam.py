@@ -23,6 +23,9 @@ import re
 import sys
 import time
 import shutil
+import threading
+import queue
+import asyncio
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Tuple
@@ -33,6 +36,8 @@ import warnings
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+from webstream import FrameHub, ControlAPI, run_mjpeg_server, run_webrtc_server
 
 try:
     import torch  # type: ignore
@@ -647,7 +652,69 @@ def main():
         help="Comma-separated preset names for runtime cycling with hotkeys m/n",
     )
 
+    # Web streaming (instead of OpenCV GUI)
+    ap.add_argument(
+        "--help-web",
+        action="store_true",
+        help="Show a short help for web-related options and exit (equivalent to run.bat/run.sh --help-web).",
+    )
+    ap.add_argument(
+        "--web",
+        action="store_true",
+        help="Serve annotated output on a webpage (headless) instead of an OpenCV window.",
+    )
+    ap.add_argument("--host", type=str, default="0.0.0.0", help="Web server bind host (when --web)")
+    ap.add_argument("--port", type=int, default=8080, help="Web server port (when --web)")
+    ap.add_argument(
+        "--stream",
+        type=str,
+        default="auto",
+        choices=["auto", "mjpeg", "webrtc"],
+        help="Streaming mode for --web. auto=WebRTC if available else MJPEG.",
+    )
+    ap.add_argument(
+        "--jpeg-quality",
+        type=int,
+        default=80,
+        help="MJPEG JPEG quality (10-95). Lower => less bandwidth, slightly more artifacts.",
+    )
+    ap.add_argument(
+        "--webrtc-codec",
+        type=str,
+        default="auto",
+        choices=["auto", "h264", "vp8", "vp9", "av1"],
+        help="Best-effort codec preference for WebRTC (when --stream webrtc).",
+    )
+
+
+    ap.add_argument(
+        "--advertise-ip",
+        type=str,
+        default="",
+        help="For WebRTC: advertise / prefer this local IP address in ICE candidates (useful on LAN with multiple adapters).",
+    )
+    ap.add_argument(
+        "--rtc-min-port",
+        type=int,
+        default=50000,
+        help="For WebRTC: try to bind ICE/UDP sockets within this local port range (min). Default 50000.",
+    )
+    ap.add_argument(
+        "--rtc-max-port",
+        type=int,
+        default=60000,
+        help="For WebRTC: try to bind ICE/UDP sockets within this local port range (max). Default 60000.",
+    )
+
     args = ap.parse_args()
+
+    if args.help_web:
+        print("sentinelCam Web-Startoptionen")
+        print("  --web --stream webrtc|mjpeg|auto --host HOST --port PORT")
+        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --advertise-ip IP --rtc-min-port 50000 --rtc-max-port 60000")
+        print("  MJPEG:  --jpeg-quality 10-95")
+        print("  Capture: --width W --height H --source N|URL")
+        return
 
     presets = build_presets()
     if args.list_presets:
@@ -708,6 +775,13 @@ def main():
     # Pose is enabled by default when launchers pass --use-pose, but you can hard-disable via --no-pose.
     pose_enabled = bool(args.use_pose) and (not args.no_pose)
 
+    # Runtime toggles (web UI)
+    overlay_enabled = True
+    inference_enabled = True
+    _saved_pose_enabled = pose_enabled
+    _saved_overlay_enabled = overlay_enabled
+    cmd_seq_counter = 0
+
     # Model loaders (switchable)
     def load_models(preset_name: str) -> Tuple[str, YOLO, Optional[YOLO], str, Optional[str]]:
         """Load det+pose weights for a preset, respecting overrides."""
@@ -743,7 +817,14 @@ def main():
     if not cap.isOpened():
         raise RuntimeError(f"Could not open source: {src}")
 
-    frame_interval = 1.0 / max(args.max_fps, 1e-6)
+    # Reduce capture buffering where supported (helps latency on RTSP/USB cams)
+    try:
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    except Exception:
+        pass
+
+    # max_fps <= 0 => uncapped
+    frame_interval = 0.0 if args.max_fps <= 0 else (1.0 / max(args.max_fps, 1e-6))
 
     # Track history for speed estimation: id -> deque[(t, cx, cy)]
     tracks = defaultdict(lambda: deque(maxlen=30))
@@ -766,11 +847,79 @@ def main():
     fps_smooth = 0.0
 
     # -----------------------------
-    # Resizable OpenCV window
+    # Output mode: GUI vs Web
     # -----------------------------
     window_name = "Office Object Detection + Pose (q=quit, m/n=models, p=pose)"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, args.width, args.height)
+    hub: Optional[FrameHub] = None
+    stop_event = threading.Event()
+    shutdown_done = threading.Event()
+
+    # Web controls (only meaningful in --web mode, but safe elsewhere)
+    cmd_q: "queue.SimpleQueue[object]" = queue.SimpleQueue()
+    state_lock = threading.Lock()
+    web_state: Dict[str, object] = {
+        "preset": active_preset_name,
+        "device": device,
+        "pose_enabled": pose_enabled,
+        "overlay_enabled": overlay_enabled,
+        "inference_enabled": inference_enabled,
+        "fps": 0.0,
+        "det": os.path.basename(str(det_weights)) if det_weights else None,
+        "pose": os.path.basename(str(pose_weights)) if pose_weights else None,
+        "cmd_seq_applied": 0,
+        "cmd_last": None,
+        "ts": None,
+    }
+
+    def _update_state(**kw):
+        try:
+            with state_lock:
+                web_state.update(kw)
+        except Exception:
+            pass
+
+    def _get_state() -> Dict[str, object]:
+        with state_lock:
+            return dict(web_state)
+
+    def _send_cmd(payload) -> None:
+        """Accept commands from web server.
+
+        Payload may be a string (legacy) or a dict: {"cmd": "...", "seq": N}.
+        seq is used by the web UI to confirm that a command was actually applied.
+        """
+        nonlocal cmd_seq_counter
+        cmd = ""
+        seq = 0
+        try:
+            if isinstance(payload, dict):
+                cmd = str(payload.get("cmd", "")).strip().lower()
+                seq = int(payload.get("seq", 0) or 0)
+            else:
+                cmd = str(payload).strip().lower()
+        except Exception:
+            cmd = str(payload).strip().lower()
+            seq = 0
+
+        if not cmd:
+            return
+
+        if seq <= 0:
+            cmd_seq_counter += 1
+            seq = cmd_seq_counter
+
+        if cmd in ("stop", "quit", "exit", "q"):
+            stop_event.set()
+
+        cmd_q.put((seq, cmd))
+
+
+
+    if not args.web:
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, args.width, args.height)
+    else:
+        hub = FrameHub(jpeg_quality=args.jpeg_quality)
 
     cycle_idx = 0
     if active_preset_name in filtered_cycle:
@@ -794,242 +943,598 @@ def main():
         face_point.clear()
         pose_cache.clear()
 
+        _update_state(
+            preset=active_preset_name,
+            det=os.path.basename(str(det_weights)) if det_weights else None,
+            pose=os.path.basename(str(pose_weights)) if pose_weights else None,
+            pose_enabled=pose_enabled,
+            overlay_enabled=overlay_enabled,
+            inference_enabled=inference_enabled,
+        )
+
         print(f"Switched preset -> {active_preset_name} (det={det_weights}, pose={pose_weights})")
 
-    while True:
-        loop_start = time.time()
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            break
 
-        h_frame, w_frame = frame.shape[:2]
+    def _set_pose(enable: bool) -> None:
+        """Enable/disable pose inference (and overlay) at runtime."""
+        nonlocal pose_enabled, pose_model, pose_weights
+        want = bool(enable)
+        if want == pose_enabled:
+            return
 
-        # Optional: upscale only for inference
-        infer_frame = frame
-        scale = float(args.infer_upscale)
-        if scale != 1.0:
-            infer_frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+        pose_enabled = want
 
-        # --- Detection + Tracking ---
-        results = det_model.track(
-            infer_frame,
-            imgsz=args.imgsz,
-            conf=args.conf,
-            iou=args.iou,
-            device=device,
-            persist=True,
-            tracker=args.tracker,
-            verbose=False,
+        # If pose toggled on and pose_model is missing, try to load default pose for current preset
+        if pose_enabled and pose_model is None:
+            try:
+                _, p = pick_preset(active_preset_name, device, presets)
+                pw = resolve_weights(p.pose) if p.pose else resolve_weights("yolov8n-pose.pt")
+                _ensure_weights_available(pw, "Pose")
+                pose_model = YOLO(pw)
+                pose_weights = _promote_weight_to_runtime(pw)
+            except Exception as e:
+                print(f"Could not enable pose: {e}")
+                pose_enabled = False
+
+        _update_state(
+            pose_enabled=pose_enabled,
+            pose=os.path.basename(str(pose_weights)) if pose_weights else None,
         )
-        r = results[0]
+        print(f"Pose -> {'on' if pose_enabled else 'off'}")
 
-        boxes = []
-        clss = []
-        confs = []
-        ids = []
 
-        if r.boxes is not None and len(r.boxes) > 0:
-            xyxy = r.boxes.xyxy.cpu().numpy()
-            cl = r.boxes.cls.cpu().numpy().astype(int)
-            cf = r.boxes.conf.cpu().numpy()
-            if r.boxes.id is not None:
-                tid = r.boxes.id.cpu().numpy().astype(int)
-            else:
-                tid = np.arange(len(xyxy), dtype=int)
+    def _toggle_pose():
+        _set_pose(not pose_enabled)
 
-            if scale != 1.0:
-                xyxy = xyxy / scale
 
-            boxes = xyxy
-            clss = cl
-            confs = cf
-            ids = tid
 
-        # --- Pose pass (persons) ---
-        pose_boxes = []
-        pose_kpts_xy = []
-        pose_kpts_conf = []
+    def processing_loop():
+        nonlocal frame_count, last_fps_time, fps_smooth
+        nonlocal cycle_idx, active_preset_name, det_model, pose_model, names
+        nonlocal det_weights, pose_weights, pose_enabled
+        nonlocal overlay_enabled, inference_enabled, _saved_pose_enabled, _saved_overlay_enabled
 
-        run_pose_now = bool(pose_enabled and pose_model is not None and (frame_count % max(1, args.pose_every) == 0))
+        try:
+            while not stop_event.is_set():
+                # Apply pending commands from the web UI (non-blocking)
+                while True:
+                    try:
+                        item = cmd_q.get_nowait()
+                    except queue.Empty:
+                        break
+                    except Exception:
+                        break
 
-        if run_pose_now:
-            pres = pose_model.predict(
-                infer_frame,
-                imgsz=args.imgsz,
-                conf=max(args.conf, 0.15),
-                device=device,
-                verbose=False,
-            )[0]
+                    seq = 0
+                    cmd = ""
+                    try:
+                        if isinstance(item, (tuple, list)) and len(item) >= 2:
+                            seq = int(item[0] or 0)
+                            cmd = str(item[1]).strip().lower()
+                        elif isinstance(item, dict):
+                            cmd = str(item.get("cmd", "")).strip().lower()
+                            seq = int(item.get("seq", 0) or 0)
+                        else:
+                            cmd = str(item).strip().lower()
+                            seq = 0
+                    except Exception:
+                        cmd = str(item).strip().lower()
+                        seq = 0
 
-            if pres.boxes is not None and len(pres.boxes) > 0 and pres.keypoints is not None:
-                pose_boxes = pres.boxes.xyxy.cpu().numpy()
-                kpts = pres.keypoints.xy.cpu().numpy()      # [N,17,2]
-                kconfs = pres.keypoints.conf.cpu().numpy()  # [N,17]
+                    if not cmd:
+                        continue
 
-                if scale != 1.0:
-                    pose_boxes = pose_boxes / scale
-                    kpts = kpts / scale
+                    applied = False
 
-                pose_kpts_xy = kpts
-                pose_kpts_conf = kconfs
+                    if cmd in ("stop", "quit", "exit", "q"):
+                        stop_event.set()
+                        applied = True
 
-        draw_pose = bool(pose_enabled and (not args.no_draw_pose))
+                    elif cmd in ("next", "m") and len(filtered_cycle) > 1:
+                        _switch_to(cycle_idx + 1)
+                        applied = True
 
-        # --- Draw & infer actions ---
-        for box, cls_id, conf, tid in zip(boxes, clss, confs, ids):
-            x1, y1, x2, y2 = box
-            x1i, y1i, x2i, y2i = map(int, [x1, y1, x2, y2])
+                    elif cmd in ("prev", "previous", "n") and len(filtered_cycle) > 1:
+                        _switch_to(cycle_idx - 1)
+                        applied = True
 
-            # model.names is commonly a dict, but guard anyway
-            if isinstance(names, dict):
-                label = names.get(int(cls_id), str(cls_id))
-            else:
-                label = names[int(cls_id)] if int(cls_id) < len(names) else str(cls_id)
-            is_person = (label == "person")
+                    elif cmd in ("toggle_pose", "pose", "p"):
+                        # Pose nur sinnvoll, wenn Inference an ist
+                        if inference_enabled:
+                            _toggle_pose()
+                        applied = True
 
-            cx = int(round(0.5 * (x1 + x2)))
-            cy = int(round(0.5 * (y1 + y2)))
+                    elif cmd in ("toggle_overlay", "overlay", "o"):
+                        # Overlay nur sinnvoll, wenn Inference an ist
+                        if inference_enabled:
+                            overlay_enabled = not overlay_enabled
+                            _saved_overlay_enabled = overlay_enabled
+                        else:
+                            overlay_enabled = False
+                        _update_state(overlay_enabled=overlay_enabled)
+                        print(f"Overlay -> {'on' if overlay_enabled else 'off'}")
+                        applied = True
 
-            if is_person:
-                now = time.time()
-                tracks[int(tid)].append((now, float(cx), float(cy)))
+                    elif cmd in ("toggle_inference", "inference", "model", "i"):
+                        if inference_enabled:
+                            # Stream-only: keine Inference, keine Overlays
+                            _saved_pose_enabled = pose_enabled
+                            _saved_overlay_enabled = overlay_enabled
+                            inference_enabled = False
+                            overlay_enabled = False
+                            if pose_enabled:
+                                _set_pose(False)
+                            tracks.clear()
+                            sit_status.clear()
+                            face_point.clear()
+                            pose_cache.clear()
+                            _update_state(inference_enabled=False, overlay_enabled=False, pose_enabled=pose_enabled)
+                            print("Inference -> off (stream-only)")
+                        else:
+                            inference_enabled = True
+                            overlay_enabled = bool(_saved_overlay_enabled)
+                            _update_state(inference_enabled=True, overlay_enabled=overlay_enabled)
+                            print("Inference -> on")
+                            # Pose ggf. wieder herstellen (wenn vorher an)
+                            if _saved_pose_enabled and not pose_enabled:
+                                _set_pose(True)
+                        applied = True
 
-                speed_pps = 0.0
-                hist = tracks[int(tid)]
-                if len(hist) >= 2:
-                    t0, x0, y0 = hist[0]
-                    t1, x1h, y1h = hist[-1]
-                    dt = max(1e-6, (t1 - t0))
-                    dist = math.hypot(x1h - x0, y1h - y0)
-                    speed_pps = dist / dt
-
-                sitting = None
-                face_xy = None
-
-                # Match pose result to this tracked person by IoU
-                if pose_enabled and len(pose_boxes) > 0:
-                    best_i = 0.0
-                    best_j = -1
-                    for j, pbox in enumerate(pose_boxes):
-                        v = iou_xyxy(box, pbox)
-                        if v > best_i:
-                            best_i = v
-                            best_j = j
-
-                    if best_j >= 0 and best_i >= 0.30:
-                        box_h = max(1.0, (y2 - y1))
-
-                        s = is_sitting_from_kpts(
-                            pose_kpts_xy[best_j],
-                            pose_kpts_conf[best_j],
-                            box_h=box_h,
-                            conf_thr=args.pose_kpt_conf,
+                    if applied:
+                        _update_state(
+                            cmd_seq_applied=int(seq or 0),
+                            cmd_last=cmd,
+                            overlay_enabled=overlay_enabled,
+                            inference_enabled=inference_enabled,
+                            pose_enabled=pose_enabled,
                         )
-                        sitting = s
-                        sit_status[int(tid)] = s
+                        if stop_event.is_set():
+                            break
 
-                        fp = face_center_from_kpts(
-                            pose_kpts_xy[best_j],
-                            pose_kpts_conf[best_j],
-                            conf_thr=args.pose_kpt_conf,
-                        )
-                        face_xy = fp
-                        face_point[int(tid)] = fp
+                if stop_event.is_set():
+                    break
 
-                        # cache pose for drawing between pose frames
-                        pose_cache[int(tid)] = (pose_kpts_xy[best_j], pose_kpts_conf[best_j], frame_count)
+                loop_start = time.time()
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    break
+
+                # Stream-only mode: no model inference, no overlay (raw frames only)
+                if not inference_enabled:
+                    now = time.time()
+                    dt = now - last_fps_time
+                    last_fps_time = now
+                    inst_fps = 1.0 / max(dt, 1e-6)
+                    fps_smooth = 0.9 * fps_smooth + 0.1 * inst_fps if fps_smooth > 0 else inst_fps
+
+                    _update_state(
+                        preset=active_preset_name,
+                        pose_enabled=pose_enabled,
+                        overlay_enabled=overlay_enabled,
+                        inference_enabled=inference_enabled,
+                        fps=float(fps_smooth),
+                        det=os.path.basename(str(det_weights)) if det_weights else None,
+                        pose=os.path.basename(str(pose_weights)) if pose_weights else None,
+                        ts=time.time(),
+                    )
+
+                    if hub is not None:
+                        hub.update(frame)
                     else:
-                        sitting = sit_status.get(int(tid), None)
-                        face_xy = face_point.get(int(tid), None)
+                        cv2.imshow(window_name, frame)
+
+                    frame_count += 1
+
+                    elapsed = time.time() - loop_start
+                    if frame_interval > 0 and elapsed < frame_interval:
+                        time.sleep(frame_interval - elapsed)
+
+                    if hub is None:
+                        k = cv2.waitKey(1) & 0xFF
+                        if k == ord("q"):
+                            break
+                        if k == ord("i"):
+                            # toggle inference back on
+                            inference_enabled = True
+                            overlay_enabled = bool(_saved_overlay_enabled)
+                            if _saved_pose_enabled and not pose_enabled:
+                                _set_pose(True)
+                        if k == ord("o"):
+                            # overlay has no effect when inference is off
+                            pass
+                    continue
+
+                h_frame, _w_frame = frame.shape[:2]
+
+                # Optional: upscale only for inference
+                infer_frame = frame
+                scale = float(args.infer_upscale)
+                if scale != 1.0:
+                    infer_frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+
+                # --- Detection + Tracking ---
+                results = det_model.track(
+                    infer_frame,
+                    imgsz=args.imgsz,
+                    conf=args.conf,
+                    iou=args.iou,
+                    device=device,
+                    persist=True,
+                    tracker=args.tracker,
+                    verbose=False,
+                )
+                r = results[0]
+
+                boxes = []
+                clss = []
+                confs = []
+                ids = []
+
+                if r.boxes is not None and len(r.boxes) > 0:
+                    xyxy = r.boxes.xyxy.cpu().numpy()
+                    cl = r.boxes.cls.cpu().numpy().astype(int)
+                    cf = r.boxes.conf.cpu().numpy()
+                    if r.boxes.id is not None:
+                        tid = r.boxes.id.cpu().numpy().astype(int)
+                    else:
+                        tid = np.arange(len(xyxy), dtype=int)
+
+                    if scale != 1.0:
+                        xyxy = xyxy / scale
+
+                    boxes = xyxy
+                    clss = cl
+                    confs = cf
+                    ids = tid
+
+                # --- Pose pass (persons) ---
+                pose_boxes = []
+                pose_kpts_xy = []
+                pose_kpts_conf = []
+
+                run_pose_now = bool(
+                    pose_enabled and pose_model is not None and (frame_count % max(1, args.pose_every) == 0)
+                )
+
+                if run_pose_now:
+                    pres = pose_model.predict(
+                        infer_frame,
+                        imgsz=args.imgsz,
+                        conf=max(args.conf, 0.15),
+                        device=device,
+                        verbose=False,
+                    )[0]
+
+                    if pres.boxes is not None and len(pres.boxes) > 0 and pres.keypoints is not None:
+                        pose_boxes = pres.boxes.xyxy.cpu().numpy()
+                        kpts = pres.keypoints.xy.cpu().numpy()      # [N,17,2]
+                        kconfs = pres.keypoints.conf.cpu().numpy()  # [N,17]
+
+                        if scale != 1.0:
+                            pose_boxes = pose_boxes / scale
+                            kpts = kpts / scale
+
+                        pose_kpts_xy = kpts
+                        pose_kpts_conf = kconfs
+
+                draw_pose = bool(pose_enabled and (not args.no_draw_pose))
+
+                # --- Draw & infer actions ---
+                for box, cls_id, conf, tid in zip(boxes, clss, confs, ids):
+                    x1, y1, x2, y2 = box
+                    x1i, y1i, x2i, y2i = map(int, [x1, y1, x2, y2])
+
+                    # model.names is commonly a dict, but guard anyway
+                    if isinstance(names, dict):
+                        label = names.get(int(cls_id), str(cls_id))
+                    else:
+                        label = names[int(cls_id)] if int(cls_id) < len(names) else str(cls_id)
+                    is_person = (label == "person")
+
+                    cx = int(round(0.5 * (x1 + x2)))
+                    cy = int(round(0.5 * (y1 + y2)))
+
+                    if is_person:
+                        now = time.time()
+                        tracks[int(tid)].append((now, float(cx), float(cy)))
+
+                        speed_pps = 0.0
+                        hist = tracks[int(tid)]
+                        if len(hist) >= 2:
+                            t0, x0, y0 = hist[0]
+                            t1, x1h, y1h = hist[-1]
+                            dt = max(1e-6, (t1 - t0))
+                            dist = math.hypot(x1h - x0, y1h - y0)
+                            speed_pps = dist / dt
+
+                        sitting = None
+                        face_xy = None
+
+                        # Match pose result to this tracked person by IoU
+                        if pose_enabled and len(pose_boxes) > 0:
+                            best_i = 0.0
+                            best_j = -1
+                            for j, pbox in enumerate(pose_boxes):
+                                v = iou_xyxy(box, pbox)
+                                if v > best_i:
+                                    best_i = v
+                                    best_j = j
+
+                            if best_j >= 0 and best_i >= 0.30:
+                                box_h = max(1.0, (y2 - y1))
+
+                                s = is_sitting_from_kpts(
+                                    pose_kpts_xy[best_j],
+                                    pose_kpts_conf[best_j],
+                                    box_h=box_h,
+                                    conf_thr=args.pose_kpt_conf,
+                                )
+                                sitting = s
+                                sit_status[int(tid)] = s
+
+                                fp = face_center_from_kpts(
+                                    pose_kpts_xy[best_j],
+                                    pose_kpts_conf[best_j],
+                                    conf_thr=args.pose_kpt_conf,
+                                )
+                                face_xy = fp
+                                face_point[int(tid)] = fp
+
+                                # cache pose for drawing between pose frames
+                                pose_cache[int(tid)] = (
+                                    pose_kpts_xy[best_j],
+                                    pose_kpts_conf[best_j],
+                                    frame_count,
+                                )
+                            else:
+                                sitting = sit_status.get(int(tid), None)
+                                face_xy = face_point.get(int(tid), None)
+                        else:
+                            face_xy = face_point.get(int(tid), None)
+
+                        # Fallback sitting
+                        if sitting is None:
+                            bw = max(1.0, (x2 - x1))
+                            bh = max(1.0, (y2 - y1))
+                            ar = bh / bw
+                            sitting = (speed_pps < STILL_PPS) and (ar < SIT_AR_MAX) and ((bh / h_frame) < SIT_H_FRAC_MAX)
+
+                        if speed_pps > RUN_PPS:
+                            action = "running"
+                        elif speed_pps > WALK_PPS:
+                            action = "walking"
+                        else:
+                            action = "sitting" if sitting else "standing"
+
+                        # Draw pose skeleton if we have a recent cache for this track
+                        if overlay_enabled and draw_pose and int(tid) in pose_cache:
+                            kxy, kcf, last_fidx = pose_cache[int(tid)]
+                            if frame_count - last_fidx <= max(2, args.pose_every * 2):
+                                draw_pose_skeleton(frame, kxy, kcf, conf_thr=args.pose_kpt_conf)
+
+                        if face_xy is not None:
+                            fx, fy = face_xy
+                            fxi, fyi = int(round(fx)), int(round(fy))
+                            text = f"person#{int(tid)} {action} C({cx},{cy}) F({fxi},{fyi}) {conf:.2f}"
+                            if overlay_enabled:
+                                cv2.circle(frame, (fxi, fyi), 3, (0, 255, 0), -1)
+                        else:
+                            text = f"person#{int(tid)} {action} C({cx},{cy}) {conf:.2f}"
+                    else:
+                        text = f"{label} C({cx},{cy}) {conf:.2f}"
+
+                    if overlay_enabled:
+                        cv2.rectangle(frame, (x1i, y1i), (x2i, y2i), (0, 255, 0), 2)
+                        cv2.circle(frame, (cx, cy), 3, (0, 255, 0), -1)
+                        draw_label(frame, x1i, max(15, y1i - 7), text)
+
+                # FPS display (smoothed)
+                now = time.time()
+                dt = now - last_fps_time
+                last_fps_time = now
+                inst_fps = 1.0 / max(dt, 1e-6)
+                fps_smooth = 0.9 * fps_smooth + 0.1 * inst_fps if fps_smooth > 0 else inst_fps
+                if overlay_enabled:
+                    draw_label(frame, 10, 25, f"FPS ~ {fps_smooth:.1f} (cap {args.max_fps})")
+
+                # Show active config
+                if overlay_enabled:
+                    draw_label(
+                        frame,
+                        10,
+                        45,
+                        f"preset={active_preset_name}  det={os.path.basename(str(det_weights))}  device={device}  pose={'on' if pose_enabled else 'off'}",
+                    )
+                    draw_label(
+                        frame,
+                        10,
+                        65,
+                        "Keys: q quit | m next model | n prev model | p pose | o overlay | i model",
+                    )
+
+                _update_state(
+                    preset=active_preset_name,
+                    pose_enabled=pose_enabled,
+                    overlay_enabled=overlay_enabled,
+                    inference_enabled=inference_enabled,
+                    fps=float(fps_smooth),
+                    det=os.path.basename(str(det_weights)) if det_weights else None,
+                    pose=os.path.basename(str(pose_weights)) if pose_weights else None,
+                    ts=time.time(),
+                )
+
+                if hub is not None:
+                    hub.update(frame)
                 else:
-                    face_xy = face_point.get(int(tid), None)
+                    cv2.imshow(window_name, frame)
 
-                # Fallback sitting
-                if sitting is None:
-                    bw = max(1.0, (x2 - x1))
-                    bh = max(1.0, (y2 - y1))
-                    ar = bh / bw
-                    sitting = (speed_pps < STILL_PPS) and (ar < SIT_AR_MAX) and ((bh / h_frame) < SIT_H_FRAC_MAX)
+                frame_count += 1
 
-                if speed_pps > RUN_PPS:
-                    action = "running"
-                elif speed_pps > WALK_PPS:
-                    action = "walking"
-                else:
-                    action = "sitting" if sitting else "standing"
+                elapsed = time.time() - loop_start
+                if frame_interval > 0 and elapsed < frame_interval:
+                    time.sleep(frame_interval - elapsed)
 
-                # Draw pose skeleton if we have a recent cache for this track
-                if draw_pose and int(tid) in pose_cache:
-                    kxy, kcf, last_fidx = pose_cache[int(tid)]
-                    if frame_count - last_fidx <= max(2, args.pose_every * 2):
-                        draw_pose_skeleton(frame, kxy, kcf, conf_thr=args.pose_kpt_conf)
+                if hub is None:
+                    k = cv2.waitKey(1) & 0xFF
+                    if k == ord("q"):
+                        break
+                    if k == ord("m") and len(filtered_cycle) > 1:
+                        _switch_to(cycle_idx + 1)
+                    if k == ord("n") and len(filtered_cycle) > 1:
+                        _switch_to(cycle_idx - 1)
+                    if k == ord("p"):
+                        _toggle_pose()
+                    if k == ord("o"):
+                        if inference_enabled:
+                            overlay_enabled = not overlay_enabled
+                            _saved_overlay_enabled = overlay_enabled
+                            _update_state(overlay_enabled=overlay_enabled)
+                    if k == ord("i"):
+                        # toggle inference
+                        if inference_enabled:
+                            _saved_pose_enabled = pose_enabled
+                            _saved_overlay_enabled = overlay_enabled
+                            inference_enabled = False
+                            overlay_enabled = False
+                            if pose_enabled:
+                                _set_pose(False)
+                            tracks.clear(); sit_status.clear(); face_point.clear(); pose_cache.clear()
+                            _update_state(inference_enabled=False, overlay_enabled=False, pose_enabled=pose_enabled)
+                        else:
+                            inference_enabled = True
+                            overlay_enabled = bool(_saved_overlay_enabled)
+                            _update_state(inference_enabled=True, overlay_enabled=overlay_enabled)
+                            if _saved_pose_enabled and not pose_enabled:
+                                _set_pose(True)
+        finally:
+            stop_event.set()
 
-                if face_xy is not None:
-                    fx, fy = face_xy
-                    fxi, fyi = int(round(fx)), int(round(fy))
-                    text = f"person#{int(tid)} {action} C({cx},{cy}) F({fxi},{fyi}) {conf:.2f}"
-                    cv2.circle(frame, (fxi, fyi), 3, (0, 255, 0), -1)
-                else:
-                    text = f"person#{int(tid)} {action} C({cx},{cy}) {conf:.2f}"
-            else:
-                text = f"{label} C({cx},{cy}) {conf:.2f}"
+    if args.web:
+        # Run processing in a thread; serve frames in main thread.
+        assert hub is not None
+        t = threading.Thread(target=processing_loop, name="sentinelcam-processing", daemon=True)
+        t.start()
 
-            cv2.rectangle(frame, (x1i, y1i), (x2i, y2i), (0, 255, 0), 2)
-            cv2.circle(frame, (cx, cy), 3, (0, 255, 0), -1)
-            draw_label(frame, x1i, max(15, y1i - 7), text)
-
-        # FPS display (smoothed)
-        now = time.time()
-        dt = now - last_fps_time
-        last_fps_time = now
-        inst_fps = 1.0 / max(dt, 1e-6)
-        fps_smooth = 0.9 * fps_smooth + 0.1 * inst_fps if fps_smooth > 0 else inst_fps
-        draw_label(frame, 10, 25, f"FPS ~ {fps_smooth:.1f} (cap {args.max_fps})")
-
-        # Show active config
-        draw_label(
-            frame,
-            10,
-            45,
-            f"preset={active_preset_name}  det={os.path.basename(str(det_weights))}  device={device}  pose={'on' if pose_enabled else 'off'}",
-        )
-        draw_label(
-            frame,
-            10,
-            65,
-            "Keys: q quit | m next model | n prev model | p toggle pose",
-        )
-
-        cv2.imshow(window_name, frame)
-
-        frame_count += 1
-
-        elapsed = time.time() - loop_start
-        if elapsed < frame_interval:
-            time.sleep(frame_interval - elapsed)
-
-        k = cv2.waitKey(1) & 0xFF
-        if k == ord("q"):
-            break
-        if k == ord("m") and len(filtered_cycle) > 1:
-            _switch_to(cycle_idx + 1)
-        if k == ord("n") and len(filtered_cycle) > 1:
-            _switch_to(cycle_idx - 1)
-        if k == ord("p"):
-            pose_enabled = not pose_enabled
-            # If pose toggled on and pose_model is missing, try to load default pose for current preset
-            if pose_enabled and pose_model is None:
+        # On some Windows camera drivers, cap.read() can block for a long time.
+        # Releasing the capture when stop_event is set helps unblock reads and
+        # allows graceful shutdown without needing the watchdog.
+        def _release_cap_on_stop():
+            try:
+                stop_event.wait()
                 try:
-                    _, p = pick_preset(active_preset_name, device, presets)
-                    pw = resolve_weights(p.pose) if p.pose else resolve_weights("yolov8n-pose.pt")
-                    pose_model = YOLO(pw)
-                    pose_weights = _promote_weight_to_runtime(pw)
+                    cap.release()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_release_cap_on_stop, name="sentinelcam-cap-release", daemon=True).start()
+
+        # --- Robust local shutdown helpers (Windows-friendly) ---
+        # In web mode there is no OpenCV window to capture keypresses.
+        # Also, if native code (FFmpeg/PyAV) ever deadlocks, Ctrl+C may not be
+        # delivered. These helpers make quitting much more reliable.
+
+        def _console_key_listener():
+            # Best-effort: 'q' to stop from terminal without needing Enter.
+            try:
+                if sys.platform.startswith("win"):
+                    import msvcrt  # type: ignore
+
+                    while not stop_event.is_set():
+                        try:
+                            if msvcrt.kbhit():
+                                ch = msvcrt.getwch()
+                                if (ch or "").lower() == "q":
+                                    stop_event.set()
+                                    break
+                            time.sleep(0.05)
+                        except Exception:
+                            time.sleep(0.1)
+                else:
+                    # On POSIX we keep it simple: require Enter.
+                    while not stop_event.is_set():
+                        try:
+                            line = sys.stdin.readline()
+                        except Exception:
+                            break
+                        if not line:
+                            break
+                        if line.strip().lower() in ("q", "quit", "exit"):
+                            stop_event.set()
+                            break
+            except Exception:
+                return
+
+        def _force_exit_guard():
+            # If we get stuck during shutdown, force-exit after a grace period.
+            stop_event.wait()
+            # Give graceful shutdown a chance.
+            if shutdown_done.wait(timeout=10.0):
+                return
+            try:
+                print("\n[watchdog] Shutdown appears stuck -> forcing exit")
+            except Exception:
+                pass
+            try:
+                os._exit(0)
+            except Exception:
+                pass
+
+        threading.Thread(target=_console_key_listener, name="sentinelcam-console-keys", daemon=True).start()
+        threading.Thread(target=_force_exit_guard, name="sentinelcam-exit-guard", daemon=True).start()
+
+        display_host = args.host
+        if display_host in ("0.0.0.0", "::", "", None):
+            display_host = "localhost"
+        title = f"sentinelCam (preset={active_preset_name}, device={device})"
+        mode = (args.stream or "auto").lower().strip()
+        try:
+            if mode == "mjpeg":
+                print(f"Web (MJPEG): http://{display_host}:{args.port}/")
+                run_mjpeg_server(hub, host=args.host, port=args.port, title=title, control=ControlAPI(get_state=_get_state, command=_send_cmd), stop_event=stop_event)
+            else:
+                # auto / webrtc
+                try:
+                    print(f"Web (WebRTC): http://{display_host}:{args.port}/")
+                    asyncio.run(
+                        run_webrtc_server(
+                            hub,
+                            host=args.host,
+                            port=args.port,
+                            codec=args.webrtc_codec,
+                            title=title,
+                            control=ControlAPI(get_state=_get_state, command=_send_cmd),
+                            advertise_ip=args.advertise_ip,
+                            rtc_min_port=args.rtc_min_port,
+                            rtc_max_port=args.rtc_max_port,
+                            stop_event=stop_event,
+                        )
+                    )
                 except Exception as e:
-                    print(f"Could not enable pose: {e}")
-                    pose_enabled = False
+                    if mode == "webrtc":
+                        raise
+                    print(f"WebRTC nicht verfügbar ({e}). Fallback auf MJPEG...")
+                    print(f"Web (MJPEG): http://{display_host}:{args.port}/")
+                    run_mjpeg_server(hub, host=args.host, port=args.port, title=title, control=ControlAPI(get_state=_get_state, command=_send_cmd), stop_event=stop_event)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            stop_event.set()
+            try:
+                t.join(timeout=2.0)
+            except Exception:
+                pass
+            shutdown_done.set()
+    else:
+        processing_loop()
+
+    # mark shutdown complete for watchdog
+    shutdown_done.set()
 
     cap.release()
-    cv2.destroyAllWindows()
+    if not args.web:
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

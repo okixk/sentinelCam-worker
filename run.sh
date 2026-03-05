@@ -6,6 +6,41 @@ cd "$SCRIPT_DIR"
 
 CFG_FILE="${CFG_FILE:-$SCRIPT_DIR/webcam.properties}"
 
+# -----------------------------
+# Web help (quick reference)
+# -----------------------------
+if [[ "${1:-}" == "--help-web" ]]; then
+  cat <<'EOF'
+sentinelCam Web-Startoptionen (run.sh)
+
+Grundlage:
+  ./run.sh --web [--stream webrtc|mjpeg|auto] [--host 127.0.0.1] [--port 8080]
+
+Web / Streaming:
+  --web                      Startet den Web-Server (statt OpenCV GUI)
+  --stream auto|webrtc|mjpeg  auto=WebRTC wenn verfuegbar, sonst MJPEG
+  --host HOST                Bind-Adresse (127.0.0.1 nur lokal, 0.0.0.0 im LAN)
+  --port PORT                TCP-Port fuer Webseite/Signaling
+
+WebRTC:
+  --webrtc-codec auto|h264|vp8|vp9|av1  Codec-Praeferenz (auto bevorzugt h264)
+  --advertise-ip IP           Erzwingt diese LAN-IP in ICE-Candidates (gegen VPN/falsche NIC)
+  --rtc-min-port 50000        UDP-Port-Range fuer ICE/RTP (Firewall passend oeffnen)
+  --rtc-max-port 60000
+
+MJPEG:
+  --jpeg-quality 10-95        JPEG-Qualitaet (niedriger = weniger Bandbreite)
+
+Capture/Quelle (wichtig fuer echte FHD):
+  --width W --height H        Versucht die Capture-Aufloesung zu setzen
+  --source N|URL              Kamera-Index (0,1,2...) oder RTSP/URL
+
+Tipp:
+  ./run.sh --help             zeigt alle Optionen von webcam.py
+EOF
+  exit 0
+fi
+
 if [[ ! -f "$CFG_FILE" ]]; then
   echo "ERROR: Shared config not found: $CFG_FILE" >&2
   exit 1
@@ -43,6 +78,9 @@ BREW_PKGS=(python ffmpeg git)
 VCAM_APT_PKGS=(v4l2loopback-dkms dkms "linux-headers-$(uname -r)")
 # Preinstall lap so Ultralytics doesn't try system pip (PEP 668)
 PIP_PKGS=(ultralytics opencv-python numpy "lap>=0.5.12")
+
+# Optional (installed only when you run with --web and want WebRTC):
+PIP_PKGS_WEBRTC=(aiohttp aiortc av)
 
 log()  { printf '%s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
@@ -135,6 +173,11 @@ install_pip_deps() {
   python -m pip install "${PIP_PKGS[@]}"
 }
 
+install_webrtc_deps_best_effort() {
+  warn "Ensuring (optional) WebRTC deps: ${PIP_PKGS_WEBRTC[*]}"
+  python -m pip install "${PIP_PKGS_WEBRTC[@]}" || warn "WebRTC deps install failed (MJPEG fallback still works)."
+}
+
 configure_ultralytics_dirs() {
   # Keep Ultralytics settings JSON inside .runtime (instead of ~/.config/Ultralytics)
   export YOLO_CONFIG_DIR="$SCRIPT_DIR/$ULTRA_CFG_DIR"
@@ -209,7 +252,6 @@ has_arg() {
   done
   return 1
 }
-
 
 prompt_yes_no() {
   # Usage: prompt_yes_no "Question" "Y"  (default Y or N)
@@ -315,12 +357,15 @@ PY
 main() {
   # ---------------------------
   # run.sh arguments
+  #   -s / --silent          No interactive prompts, always use defaults
+  #   --install              Force install step
+  #   --no-install           Skip install step
   #   --vcam                 Create a virtual camera (Linux v4l2loopback) and feed a test pattern
   #   --vcam-input <path/url> Feed the vcam from a file or URL instead of a test pattern
   #   --vcam-nr <N>           vcam device number (default 42 -> /dev/video42)
   #   --vcam-size <WxH>       default 1280x720
   #   --vcam-fps <FPS>        default 30
-  #   --help                  print help
+  #   --help / --help-web     print help
   # Anything else is forwarded to webcam.py
   # ---------------------------
   local SILENT=0
@@ -350,6 +395,8 @@ Usage:
           [--vcam [--vcam-input <file/url>] [--vcam-nr 42] [--vcam-size 1280x720] [--vcam-fps 30]]
           [webcam.py args...]
 
+  ./run.sh --help-web             zeigt Web/Streaming-spezifische Optionen
+
 Examples:
   ./run.sh                       # interactive prompts (Enter = defaults)
   ./run.sh -s                    # silent: always defaults
@@ -357,6 +404,7 @@ Examples:
   ./run.sh --preset yolo26x       # force GPU preset (if CUDA)
   ./run.sh --vcam                 # virtual cam with test pattern on /dev/video42
   ./run.sh --vcam --vcam-input demo.mp4  # feeds demo.mp4 into /dev/video42 and uses it
+  ./run.sh --web --stream webrtc --host 0.0.0.0 --port 8080
 
 Tip (cross-platform): OBS Studio (open source) has a built-in Virtual Camera.
 Note: On macOS, this script uses Homebrew for system deps and prefers Apple Silicon (MPS) when available.
@@ -392,6 +440,22 @@ if [[ "$DO_INSTALL" == "1" ]]; then
   ensure_system_pkgs
   ensure_venv
   install_pip_deps
+
+  # If the user asks for web output, try to install optional WebRTC deps.
+  # This is best-effort: if it fails, webcam.py will fall back to MJPEG.
+  if has_arg "--web" "${FORWARD[@]}"; then
+    local SKIP_WEBRTC=0
+    if has_arg "--stream" "${FORWARD[@]}"; then
+      for ((i=0; i<${#FORWARD[@]}; i++)); do
+        if [[ "${FORWARD[$i]}" == "--stream" && "${FORWARD[$((i+1))]:-}" == "mjpeg" ]]; then
+          SKIP_WEBRTC=1
+        fi
+      done
+    fi
+    if [[ "$SKIP_WEBRTC" != "1" ]]; then
+      install_webrtc_deps_best_effort
+    fi
+  fi
 else
   warn "Skipping setup/install step (--no-install). Assuming python + deps already exist."
   prefer_brew_on_path
@@ -493,7 +557,6 @@ fi
 
 # ---------------------------
 # webcam.py defaults:
-
   #   --preset yolo   (CPU->yolov8n, GPU->yolo26x)
   #   --device auto   (will pick CUDA if available)
   # so we only pass the device + sensible defaults here.
