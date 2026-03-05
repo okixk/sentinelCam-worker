@@ -163,7 +163,7 @@ if "%HAVE_NVIDIA%"=="1" (
 REM Ultralytics + deps check (install only if missing)
 python -c "import ultralytics, cv2, numpy, lap" >nul 2>&1
 if errorlevel 1 (
-  echo Installing Ultralytics + deps (only because missing)...
+  echo Installing Ultralytics + deps ^(only because missing^)...
   python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" || goto ERR_DEPS
 ) else (
   echo Ultralytics/OpenCV/Numpy/LAP OK - skipping install.
@@ -203,10 +203,10 @@ echo %FWD_ARGS% | findstr /i /c:"--source" >nul
 if errorlevel 1 (
   if "%SILENT%"=="0" (
     echo.
-    echo Choose camera source (press Enter for default):
-    echo   - number like 0, 1, 2 ... (DirectShow index)
+    echo Choose camera source ^(press Enter for default^):
+    echo   - number like 0, 1, 2 ... ^(DirectShow index^)
     echo   - or URL like rtsp://... / http://... / file path
-    set /p SRC_IN=Camera source [!CHOSEN_SOURCE!]: 
+    set /p "SRC_IN=Camera source [!CHOSEN_SOURCE!]: "
     if not "!SRC_IN!"=="" set "CHOSEN_SOURCE=!SRC_IN!"
   )
 )
@@ -218,9 +218,9 @@ echo %FWD_ARGS% | findstr /i /c:"--preset" >nul
 if errorlevel 1 (
   if "%SILENT%"=="0" (
     echo.
-    echo Choose model preset (press Enter for default). Tip: 'yolo' = auto CPU/GPU.
+    echo Choose model preset ^(press Enter for default^). Tip: 'yolo' = auto CPU/GPU.
     python webcam.py --list-presets 2>nul
-    set /p PRESET_IN=Preset [!CHOSEN_PRESET!]: 
+    set /p "PRESET_IN=Preset [!CHOSEN_PRESET!]: "
     if not "!PRESET_IN!"=="" set "CHOSEN_PRESET=!PRESET_IN!"
   )
 )
@@ -294,7 +294,7 @@ set "CFG_PY=%RUNTIME_DIR%\ultra_cfg.py"
 >> "%CFG_PY%" echo })
 python "%CFG_PY%" >nul 2>&1
 if errorlevel 1 (
-  echo WARNING: Could not apply Ultralytics settings (continuing).
+  echo WARNING: Could not apply Ultralytics settings ^(continuing^).
 )
 exit /b 0
 
