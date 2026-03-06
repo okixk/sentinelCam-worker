@@ -37,7 +37,11 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-from webstream import FrameHub, ControlAPI, StreamQuality, run_mjpeg_server, run_webrtc_server
+# stream_server lives in THIS worker repo.
+# It exposes only the stream + JSON APIs; the actual website lives in sentinelCam-web.
+from stream_server import FrameHub, ControlAPI, run_mjpeg_server
+run_webrtc_server = None  # worker-only mode: no WebRTC server here
+
 
 try:
     import torch  # type: ignore
@@ -224,12 +228,59 @@ def resolve_device(device_arg: str) -> str:
     return device_arg
 
 
+def _runtime_override_dir(env_name: str) -> Optional[str]:
+    v = (os.environ.get(env_name) or "").strip()
+    return v or None
+
+
+
+def _configure_ultralytics_runtime_dirs() -> None:
+    """Best-effort pin Ultralytics runtime dirs into this project's .runtime tree.
+
+    Launchers provide absolute overrides via SC_* env vars. We keep YOLO_CONFIG_DIR
+    for the settings file itself, but explicitly redirect weights/runs/datasets so
+    downloads and generated artifacts do not spill into the repo root or user cache.
+    """
+    updates = {}
+    weights_dir = _runtime_override_dir("SC_WEIGHTS_DIR")
+    runs_dir = _runtime_override_dir("SC_RUNS_DIR")
+    datasets_dir = _runtime_override_dir("SC_DATASETS_DIR")
+
+    if weights_dir:
+        updates["weights_dir"] = weights_dir
+    if runs_dir:
+        updates["runs_dir"] = runs_dir
+    if datasets_dir:
+        updates["datasets_dir"] = datasets_dir
+
+    if not updates:
+        return
+
+    for path in updates.values():
+        try:
+            os.makedirs(path, exist_ok=True)
+        except Exception:
+            pass
+
+    try:
+        from ultralytics import settings  # type: ignore
+        if hasattr(settings, "update"):
+            settings.update(updates)
+    except Exception:
+        pass
+
+
+
 def _ultra_weights_dir() -> Optional[str]:
     """Best-effort get Ultralytics weights_dir.
 
-    Prefer Ultralytics settings, but if only YOLO_CONFIG_DIR is set
-    (common in launcher scripts), fall back to <YOLO_CONFIG_DIR>/weights.
+    Prefer the launcher's explicit .runtime override, then Ultralytics settings,
+    then a YOLO_CONFIG_DIR fallback.
     """
+    override = _runtime_override_dir("SC_WEIGHTS_DIR")
+    if override:
+        return override
+
     try:
         from ultralytics import settings  # type: ignore
         wd = settings.get("weights_dir") if hasattr(settings, "get") else None
@@ -652,17 +703,40 @@ def main():
         help="Comma-separated preset names for runtime cycling with hotkeys m/n",
     )
 
-    # Web streaming (instead of OpenCV GUI)
+    # Web streaming / server (default) + optional local window preview
     ap.add_argument(
         "--help-web",
         action="store_true",
         help="Show a short help for web-related options and exit (equivalent to run.bat/run.sh --help-web).",
     )
+
+    # Stream/API server is the default. Use --no-web for window-only mode.
+    ap.set_defaults(web=True, window=False)
     ap.add_argument(
         "--web",
+        dest="web",
         action="store_true",
-        help="Serve annotated output on a webpage (headless) instead of an OpenCV window.",
+        help="Enable the built-in stream/API server (default).",
     )
+    ap.add_argument(
+        "--no-web",
+        dest="web",
+        action="store_false",
+        help="Disable the stream/API server (window-only).",
+    )
+    ap.add_argument(
+        "--window",
+        dest="window",
+        action="store_true",
+        help="Also show a local OpenCV preview window + hotkeys (debug/testing).",
+    )
+    ap.add_argument(
+        "--no-window",
+        dest="window",
+        action="store_false",
+        help="Disable local OpenCV preview window (default).",
+    )
+
     ap.add_argument("--host", type=str, default="0.0.0.0", help="Web server bind host (when --web)")
     ap.add_argument("--port", type=int, default=8080, help="Web server port (when --web)")
     ap.add_argument(
@@ -710,11 +784,20 @@ def main():
 
     if args.help_web:
         print("sentinelCam Web-Startoptionen")
-        print("  --web --stream webrtc|mjpeg|auto --host HOST --port PORT")
+        print("  --web/--no-web --stream webrtc|mjpeg|auto --host HOST --port PORT")
+        print("  Optional debug: --window (show OpenCV preview + hotkeys)")
         print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --advertise-ip IP --rtc-min-port 50000 --rtc-max-port 60000")
         print("  MJPEG:  --jpeg-quality 10-95")
         print("  Capture: --width W --height H --source N|URL")
         return
+
+    # Early dependency check: server/web mode needs the separate sentinelCam-web repo (webstream module)
+    if bool(getattr(args, 'web', False)) and FrameHub is None:
+        raise SystemExit(
+            "webstream module not available. Install the 'sentinelCam-web' repo/package (provides webstream.py)\n"
+            "Example: python -m pip install git+https://github.com/okixk/sentinelCam-web.git\n"
+            "Or run with --no-web to use window-only mode."
+        )
 
     presets = build_presets()
     if args.list_presets:
@@ -725,6 +808,8 @@ def main():
         return
 
     setup_quiet_warnings(args.quiet_warnings)
+
+    _configure_ultralytics_runtime_dirs()
 
     device = resolve_device(args.device)
     if device == "cpu":
@@ -847,11 +932,17 @@ def main():
     fps_smooth = 0.0
 
     # -----------------------------
-    # Output mode: GUI vs Web
+    # Output mode: Web server (default) + optional preview window
     # -----------------------------
     window_name = "Office Object Detection + Pose (q=quit, m/n=models, p=pose)"
-    hub: Optional[FrameHub] = None
-    stream_quality = StreamQuality(jpeg_quality=args.jpeg_quality)
+    web_enabled = bool(getattr(args, 'web', False))
+    window_enabled = bool(getattr(args, 'window', False))
+    # Convenience: if the user disables the web server and did not request a window,
+    # default to the traditional window-only mode.
+    if (not web_enabled) and (not window_enabled):
+        window_enabled = True
+
+    hub: Optional[object] = None
     stop_event = threading.Event()
     shutdown_done = threading.Event()
 
@@ -916,11 +1007,18 @@ def main():
 
 
 
-    if not args.web:
+    if web_enabled:
+        if FrameHub is None:
+            raise SystemExit(
+                "webstream module not available. Install the 'sentinelCam-web' repo/package (provides webstream.py)\n"
+                "Example: python -m pip install git+https://github.com/okixk/sentinelCam-web.git\n"
+                "Or run with --no-web to use window-only mode."
+            )
+        hub = FrameHub(jpeg_quality=args.jpeg_quality)
+
+    if window_enabled:
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(window_name, args.width, args.height)
-    else:
-        hub = FrameHub(jpeg_quality=args.jpeg_quality)
 
     cycle_idx = 0
     if active_preset_name in filtered_cycle:
@@ -1121,7 +1219,7 @@ def main():
 
                     if hub is not None:
                         hub.update(frame)
-                    else:
+                    if window_enabled:
                         cv2.imshow(window_name, frame)
 
                     frame_count += 1
@@ -1130,7 +1228,7 @@ def main():
                     if frame_interval > 0 and elapsed < frame_interval:
                         time.sleep(frame_interval - elapsed)
 
-                    if hub is None:
+                    if window_enabled:
                         k = cv2.waitKey(1) & 0xFF
                         if k == ord("q"):
                             break
@@ -1366,7 +1464,7 @@ def main():
 
                 if hub is not None:
                     hub.update(frame)
-                else:
+                if window_enabled:
                     cv2.imshow(window_name, frame)
 
                 frame_count += 1
@@ -1375,7 +1473,7 @@ def main():
                 if frame_interval > 0 and elapsed < frame_interval:
                     time.sleep(frame_interval - elapsed)
 
-                if hub is None:
+                if window_enabled:
                     k = cv2.waitKey(1) & 0xFF
                     if k == ord("q"):
                         break
@@ -1410,148 +1508,135 @@ def main():
         finally:
             stop_event.set()
 
-    if args.web:
-        # Run processing in a thread; serve frames in main thread.
+
+    if web_enabled:
+        # If we are headless (no window), keep the original design:
+        #   - producer thread generates frames
+        #   - server runs in main thread
+        #
+        # If a preview window is requested, run OpenCV in the main thread
+        # (macOS requirement) and run the server in a background thread.
         assert hub is not None
-        t = threading.Thread(target=processing_loop, name="sentinelcam-processing", daemon=True)
-        t.start()
 
-        # On some Windows camera drivers, cap.read() can block for a long time.
-        # Releasing the capture when stop_event is set helps unblock reads and
-        # allows graceful shutdown without needing the watchdog.
-        def _release_cap_on_stop():
+        def _start_server_blocking():
+            display_host = args.host
+            if display_host in ("0.0.0.0", "::", "", None):
+                display_host = "localhost"
+            mode = (args.stream or "auto").lower().strip()
             try:
-                stop_event.wait()
-                try:
-                    cap.release()
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-        threading.Thread(target=_release_cap_on_stop, name="sentinelcam-cap-release", daemon=True).start()
-
-        # --- Robust local shutdown helpers (Windows-friendly) ---
-        # In web mode there is no OpenCV window to capture keypresses.
-        # Also, if native code (FFmpeg/PyAV) ever deadlocks, Ctrl+C may not be
-        # delivered. These helpers make quitting much more reliable.
-
-        def _console_key_listener():
-            # Best-effort: 'q' to stop from terminal without needing Enter.
-            try:
-                if sys.platform.startswith("win"):
-                    import msvcrt  # type: ignore
-
-                    while not stop_event.is_set():
-                        try:
-                            if msvcrt.kbhit():
-                                ch = msvcrt.getwch()
-                                if (ch or "").lower() == "q":
-                                    stop_event.set()
-                                    break
-                            time.sleep(0.05)
-                        except Exception:
-                            time.sleep(0.1)
-                else:
-                    # On POSIX we keep it simple: require Enter.
-                    while not stop_event.is_set():
-                        try:
-                            line = sys.stdin.readline()
-                        except Exception:
-                            break
-                        if not line:
-                            break
-                        if line.strip().lower() in ("q", "quit", "exit"):
-                            stop_event.set()
-                            break
-            except Exception:
-                return
-
-        def _force_exit_guard():
-            # If we get stuck during shutdown, force-exit after a grace period.
-            stop_event.wait()
-            # Give graceful shutdown a chance.
-            if shutdown_done.wait(timeout=10.0):
-                return
-            try:
-                print("\n[watchdog] Shutdown appears stuck -> forcing exit")
-            except Exception:
-                pass
-            try:
-                os._exit(0)
-            except Exception:
-                pass
-
-        threading.Thread(target=_console_key_listener, name="sentinelcam-console-keys", daemon=True).start()
-        threading.Thread(target=_force_exit_guard, name="sentinelcam-exit-guard", daemon=True).start()
-
-        display_host = args.host
-        if display_host in ("0.0.0.0", "::", "", None):
-            display_host = "localhost"
-        title = f"sentinelCam (preset={active_preset_name}, device={device})"
-        mode = (args.stream or "auto").lower().strip()
-        try:
-            if mode == "mjpeg":
-                print(f"Web (MJPEG): http://{display_host}:{args.port}/")
+                if mode == "webrtc":
+                    raise SystemExit("--stream webrtc is not supported in worker-only mode. Use MJPEG and let the web repo consume /stream.mjpg.")
+                print(f"Stream (MJPEG): http://{display_host}:{args.port}/stream.mjpg")
                 run_mjpeg_server(
                     hub,
                     host=args.host,
                     port=args.port,
-                    title=title,
                     control=ControlAPI(get_state=_get_state, command=_send_cmd),
-                    quality=stream_quality,
                     stop_event=stop_event,
                 )
-            else:
-                # auto / webrtc
+            except KeyboardInterrupt:
+                pass
+            finally:
+                stop_event.set()
+                shutdown_done.set()
+
+        if not window_enabled:
+            # Headless server default
+            t = threading.Thread(target=processing_loop, name="sentinelcam-processing", daemon=True)
+            t.start()
+
+            # On some Windows camera drivers, cap.read() can block for a long time.
+            # Releasing the capture when stop_event is set helps unblock reads and
+            # allows graceful shutdown without needing the watchdog.
+            def _release_cap_on_stop():
                 try:
-                    print(f"Web (WebRTC): http://{display_host}:{args.port}/")
-                    asyncio.run(
-                        run_webrtc_server(
-                            hub,
-                            host=args.host,
-                            port=args.port,
-                            codec=args.webrtc_codec,
-                            title=title,
-                            control=ControlAPI(get_state=_get_state, command=_send_cmd),
-                            quality=stream_quality,
-                            advertise_ip=args.advertise_ip,
-                            rtc_min_port=args.rtc_min_port,
-                            rtc_max_port=args.rtc_max_port,
-                            stop_event=stop_event,
-                        )
-                    )
-                except Exception as e:
-                    if mode == "webrtc":
-                        raise
-                    print(f"WebRTC nicht verfügbar ({e}). Fallback auf MJPEG...")
-                    print(f"Web (MJPEG): http://{display_host}:{args.port}/")
-                    run_mjpeg_server(
-                        hub,
-                        host=args.host,
-                        port=args.port,
-                        title=title,
-                        control=ControlAPI(get_state=_get_state, command=_send_cmd),
-                        quality=stream_quality,
-                        stop_event=stop_event,
-                    )
-        except KeyboardInterrupt:
-            pass
-        finally:
-            stop_event.set()
+                    stop_event.wait()
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+            threading.Thread(target=_release_cap_on_stop, name="sentinelcam-cap-release", daemon=True).start()
+
+            # --- Robust local shutdown helpers (Windows-friendly) ---
+            def _console_key_listener():
+                # Best-effort: 'q' to stop from terminal (no window).
+                try:
+                    if sys.platform.startswith("win"):
+                        import msvcrt  # type: ignore
+
+                        while not stop_event.is_set():
+                            try:
+                                if msvcrt.kbhit():
+                                    ch = msvcrt.getwch()
+                                    if (ch or "").lower() == "q":
+                                        stop_event.set()
+                                        break
+                                time.sleep(0.05)
+                            except Exception:
+                                time.sleep(0.1)
+                    else:
+                        # On POSIX we keep it simple: require Enter.
+                        while not stop_event.is_set():
+                            try:
+                                line = sys.stdin.readline()
+                            except Exception:
+                                break
+                            if not line:
+                                break
+                            if line.strip().lower() in ("q", "quit", "exit"):
+                                stop_event.set()
+                                break
+                except Exception:
+                    return
+
+            def _force_exit_guard():
+                stop_event.wait()
+                if shutdown_done.wait(timeout=10.0):
+                    return
+                try:
+                    print("\n[watchdog] Shutdown appears stuck -> forcing exit")
+                except Exception:
+                    pass
+                try:
+                    os._exit(0)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_console_key_listener, name="sentinelcam-console-keys", daemon=True).start()
+            threading.Thread(target=_force_exit_guard, name="sentinelcam-exit-guard", daemon=True).start()
+
+            _start_server_blocking()
             try:
                 t.join(timeout=2.0)
             except Exception:
                 pass
             shutdown_done.set()
+        else:
+            # Server + preview window: run server in background, OpenCV in main thread.
+            server_t = threading.Thread(target=_start_server_blocking, name="sentinelcam-webserver", daemon=True)
+            server_t.start()
+            try:
+                processing_loop()
+            finally:
+                stop_event.set()
+                try:
+                    server_t.join(timeout=2.0)
+                except Exception:
+                    pass
+                shutdown_done.set()
     else:
+        # Window-only
         processing_loop()
+
 
     # mark shutdown complete for watchdog
     shutdown_done.set()
 
     cap.release()
-    if not args.web:
+    if window_enabled:
         cv2.destroyAllWindows()
 
 
