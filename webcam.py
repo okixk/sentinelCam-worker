@@ -37,7 +37,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-from webstream import FrameHub, ControlAPI, run_mjpeg_server, run_webrtc_server
+from webstream import FrameHub, ControlAPI, StreamQuality, run_mjpeg_server, run_webrtc_server
 
 try:
     import torch  # type: ignore
@@ -851,6 +851,7 @@ def main():
     # -----------------------------
     window_name = "Office Object Detection + Pose (q=quit, m/n=models, p=pose)"
     hub: Optional[FrameHub] = None
+    stream_quality = StreamQuality(jpeg_quality=args.jpeg_quality)
     stop_event = threading.Event()
     shutdown_done = threading.Event()
 
@@ -1492,7 +1493,15 @@ def main():
         try:
             if mode == "mjpeg":
                 print(f"Web (MJPEG): http://{display_host}:{args.port}/")
-                run_mjpeg_server(hub, host=args.host, port=args.port, title=title, control=ControlAPI(get_state=_get_state, command=_send_cmd), stop_event=stop_event)
+                run_mjpeg_server(
+                    hub,
+                    host=args.host,
+                    port=args.port,
+                    title=title,
+                    control=ControlAPI(get_state=_get_state, command=_send_cmd),
+                    quality=stream_quality,
+                    stop_event=stop_event,
+                )
             else:
                 # auto / webrtc
                 try:
@@ -1505,6 +1514,7 @@ def main():
                             codec=args.webrtc_codec,
                             title=title,
                             control=ControlAPI(get_state=_get_state, command=_send_cmd),
+                            quality=stream_quality,
                             advertise_ip=args.advertise_ip,
                             rtc_min_port=args.rtc_min_port,
                             rtc_max_port=args.rtc_max_port,
@@ -1516,7 +1526,15 @@ def main():
                         raise
                     print(f"WebRTC nicht verfügbar ({e}). Fallback auf MJPEG...")
                     print(f"Web (MJPEG): http://{display_host}:{args.port}/")
-                    run_mjpeg_server(hub, host=args.host, port=args.port, title=title, control=ControlAPI(get_state=_get_state, command=_send_cmd), stop_event=stop_event)
+                    run_mjpeg_server(
+                        hub,
+                        host=args.host,
+                        port=args.port,
+                        title=title,
+                        control=ControlAPI(get_state=_get_state, command=_send_cmd),
+                        quality=stream_quality,
+                        stop_event=stop_event,
+                    )
         except KeyboardInterrupt:
             pass
         finally:
