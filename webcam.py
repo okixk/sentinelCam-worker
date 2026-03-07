@@ -8,13 +8,7 @@ Adds on top of the original script:
   - Device "auto" mode (uses CUDA if available)
   - Hotkeys to cycle through presets at runtime (press 'm' / 'n')
   - Preset gating (e.g. "sam32" can be marked GPU-only)
-
-Notes about "SAM32":
-  This script treats "sam32" as a detection-weight preset named "sam32.pt".
-  If your file is named differently, either rename it or run with --model /path/to/your.pt
 """
-
-from __future__ import annotations
 
 import argparse
 import math
@@ -32,6 +26,7 @@ from typing import Dict, List, Optional, Tuple
 
 import logging
 import warnings
+import traceback
 
 import cv2
 import numpy as np
@@ -535,13 +530,6 @@ def build_presets() -> Dict[str, Preset]:
             pose="yolo26x-pose.pt",
             description="Ultralytics YOLO26x pretrained weights (GPU recommended)",
         ),
-        "sam32": Preset(
-            name="sam32",
-            det="sam32.pt",
-            pose=None,
-            description="SAM32 (treated as detection weights here) - GPU only",
-            requires_cuda=True,
-        ),
     }
 
 
@@ -699,7 +687,7 @@ def main():
     ap.add_argument(
         "--cycle",
         type=str,
-        default="yolov8n,yolov8s,yolov8m,yolov8l,yolov8x,yolo26x,sam32",
+        default="yolov8n,yolov8s,yolov8m,yolov8l,yolov8x,yolo26x",
         help="Comma-separated preset names for runtime cycling with hotkeys m/n",
     )
 
@@ -960,6 +948,11 @@ def main():
         "pose": os.path.basename(str(pose_weights)) if pose_weights else None,
         "cmd_seq_applied": 0,
         "cmd_last": None,
+        "busy": False,
+        "busy_text": None,
+        "last_error": None,
+        "last_error_ts": None,
+        "worker_alive": True,
         "ts": None,
     }
 
@@ -1027,13 +1020,20 @@ def main():
     def _switch_to(idx: int):
         nonlocal cycle_idx, active_preset_name, det_model, pose_model, names
         nonlocal det_weights, pose_weights
-        cycle_idx = idx % len(filtered_cycle)
-        target = filtered_cycle[cycle_idx]
+        target_idx = idx % len(filtered_cycle)
+        target = filtered_cycle[target_idx]
         if target == active_preset_name:
             return
 
-        # Reload models
-        active_preset_name, det_model, pose_model, det_weights, pose_weights = load_models(target)
+        # Reload models first. Only switch the active state if loading succeeded.
+        new_active_preset_name, new_det_model, new_pose_model, new_det_weights, new_pose_weights = load_models(target)
+
+        cycle_idx = target_idx
+        active_preset_name = new_active_preset_name
+        det_model = new_det_model
+        pose_model = new_pose_model
+        det_weights = new_det_weights
+        pose_weights = new_pose_weights
         names = det_model.names
 
         # Reset tracking state so IDs don't carry over confusingly
@@ -1049,6 +1049,9 @@ def main():
             pose_enabled=pose_enabled,
             overlay_enabled=overlay_enabled,
             inference_enabled=inference_enabled,
+            last_error=None,
+            last_error_ts=None,
+            worker_alive=True,
         )
 
         print(f"Switched preset -> {active_preset_name} (det={det_weights}, pose={pose_weights})")
@@ -1071,8 +1074,8 @@ def main():
                 _ensure_weights_available(pw, "Pose")
                 pose_model = YOLO(pw)
                 pose_weights = _promote_weight_to_runtime(pw)
-            except Exception as e:
-                print(f"Could not enable pose: {e}")
+            except (Exception, SystemExit) as e:
+                print(f"Could not enable pose: {type(e).__name__}: {e}")
                 pose_enabled = False
 
         _update_state(
@@ -1130,12 +1133,34 @@ def main():
                         applied = True
 
                     elif cmd in ("next", "m") and len(filtered_cycle) > 1:
-                        _switch_to(cycle_idx + 1)
-                        applied = True
+                        try:
+                            _update_state(busy=True, busy_text="Switching to next model…", last_error=None, worker_alive=True)
+                            _switch_to(cycle_idx + 1)
+                            applied = True
+                        except (Exception, SystemExit) as e:
+                            _update_state(
+                                busy=False,
+                                busy_text=None,
+                                last_error=f"Model switch failed ({type(e).__name__}): {e}",
+                                last_error_ts=time.time(),
+                                worker_alive=True,
+                            )
+                            print(f"Model switch failed (next): {e}")
 
                     elif cmd in ("prev", "previous", "n") and len(filtered_cycle) > 1:
-                        _switch_to(cycle_idx - 1)
-                        applied = True
+                        try:
+                            _update_state(busy=True, busy_text="Switching to previous model…", last_error=None, worker_alive=True)
+                            _switch_to(cycle_idx - 1)
+                            applied = True
+                        except (Exception, SystemExit) as e:
+                            _update_state(
+                                busy=False,
+                                busy_text=None,
+                                last_error=f"Model switch failed ({type(e).__name__}): {e}",
+                                last_error_ts=time.time(),
+                                worker_alive=True,
+                            )
+                            print(f"Model switch failed (prev): {e}")
 
                     elif cmd in ("toggle_pose", "pose", "p"):
                         # Pose nur sinnvoll, wenn Inference an ist
@@ -1186,6 +1211,10 @@ def main():
                             overlay_enabled=overlay_enabled,
                             inference_enabled=inference_enabled,
                             pose_enabled=pose_enabled,
+                            busy=False,
+                            busy_text=None,
+                            last_error=None,
+                            worker_alive=True,
                         )
                         if stop_event.is_set():
                             break
@@ -1196,7 +1225,15 @@ def main():
                 loop_start = time.time()
                 ret, frame = cap.read()
                 if not ret or frame is None:
-                    break
+                    _update_state(
+                        busy=False,
+                        busy_text=None,
+                        last_error="Camera read failed; retrying…",
+                        last_error_ts=time.time(),
+                        worker_alive=True,
+                    )
+                    time.sleep(0.25)
+                    continue
 
                 # Stream-only mode: no model inference, no overlay (raw frames only)
                 if not inference_enabled:
@@ -1214,6 +1251,7 @@ def main():
                         fps=float(fps_smooth),
                         det=os.path.basename(str(det_weights)) if det_weights else None,
                         pose=os.path.basename(str(pose_weights)) if pose_weights else None,
+                        worker_alive=True,
                         ts=time.time(),
                     )
 
@@ -1505,8 +1543,21 @@ def main():
                             _update_state(inference_enabled=True, overlay_enabled=overlay_enabled)
                             if _saved_pose_enabled and not pose_enabled:
                                 _set_pose(True)
+        except (Exception, SystemExit) as e:
+            _update_state(
+                busy=False,
+                busy_text=None,
+                last_error=f"Worker crashed ({type(e).__name__}): {e}",
+                last_error_ts=time.time(),
+                worker_alive=False,
+            )
+            print(f"Worker crashed: {e}")
+            try:
+                traceback.print_exc()
+            except Exception:
+                pass
         finally:
-            stop_event.set()
+            _update_state(busy=False, busy_text=None, worker_alive=False)
 
 
     if web_enabled:
@@ -1542,7 +1593,17 @@ def main():
 
         if not window_enabled:
             # Headless server default
-            t = threading.Thread(target=processing_loop, name="sentinelcam-processing", daemon=True)
+            def _processing_runner():
+                while not stop_event.is_set():
+                    _update_state(worker_alive=True)
+                    processing_loop()
+                    if stop_event.is_set():
+                        break
+                    # processing loop exited unexpectedly; keep the HTTP API alive and retry
+                    _update_state(worker_alive=False)
+                    time.sleep(1.0)
+
+            t = threading.Thread(target=_processing_runner, name="sentinelcam-processing", daemon=True)
             t.start()
 
             # On some Windows camera drivers, cap.read() can block for a long time.
