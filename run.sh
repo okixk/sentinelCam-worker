@@ -7,7 +7,7 @@ cd "$SCRIPT_DIR"
 CFG_FILE="${CFG_FILE:-$SCRIPT_DIR/webcam.properties}"
 
 if [[ "${1:-}" == "--help-web" ]]; then
-  cat <<'EOF'
+  cat <<'HELP'
 sentinelCam-worker launcher (run.sh)
 
 This script ONLY manages the worker repo:
@@ -15,7 +15,6 @@ This script ONLY manages the worker repo:
   - installs python deps via an inline pip list (NO requirements.txt)
   - starts webcam.py
 
-Web streaming is provided by the worker itself (webstream.py in this repo).
 The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
 
 Examples:
@@ -24,7 +23,7 @@ Examples:
   ./run.sh --no-web                 # window-only
   ./run.sh --window                 # also show OpenCV preview window
   ./run.sh --host 0.0.0.0 --port 8080
-EOF
+HELP
   exit 0
 fi
 
@@ -68,12 +67,93 @@ has_arg() {
   return 1
 }
 
+has_opt() {
+  local name="$1"; shift
+  local a
+  for a in "$@"; do
+    [[ "$a" == "$name" || "$a" == "$name="* ]] && return 0
+  done
+  return 1
+}
+
+default_source_for_os() {
+  case "$OS_NAME" in
+    Linux)
+      printf '%s' "${DEFAULT_SOURCE_LINUX:-0}"
+      ;;
+    Darwin)
+      printf '%s' "${DEFAULT_SOURCE_MAC:-${DEFAULT_SOURCE_LINUX:-0}}"
+      ;;
+    *)
+      printf '%s' "${DEFAULT_SOURCE_WINDOWS:-0}"
+      ;;
+  esac
+}
+
+validate_source() {
+  local src="$1"
+  python - "$src" <<'PY'
+import sys
+import cv2
+
+src = sys.argv[1]
+ok = False
+
+try:
+    if isinstance(src, str) and src.isdigit():
+        idx = int(src)
+        backends = [None]
+        if sys.platform.startswith("win") and hasattr(cv2, "CAP_DSHOW"):
+            backends = [cv2.CAP_DSHOW, None]
+        elif sys.platform == "darwin" and hasattr(cv2, "CAP_AVFOUNDATION"):
+            backends = [cv2.CAP_AVFOUNDATION, None]
+
+        for backend in backends:
+            cap = cv2.VideoCapture(idx, backend) if backend is not None else cv2.VideoCapture(idx)
+            try:
+                if cap is not None and cap.isOpened():
+                    ret, _frame = cap.read()
+                    if ret:
+                        ok = True
+                        break
+            finally:
+                try:
+                    if cap is not None:
+                        cap.release()
+                except Exception:
+                    pass
+    else:
+        cap = cv2.VideoCapture(src)
+        try:
+            if cap is not None and cap.isOpened():
+                ret, _frame = cap.read()
+                ok = bool(ret)
+        finally:
+            try:
+                if cap is not None:
+                    cap.release()
+            except Exception:
+                pass
+except Exception:
+    ok = False
+
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+prompt_for_source() {
+  local default_source="$1"
+  local reply=""
+  read -r -p "Which cam index or stream URL/path should YOLO use? [${default_source}]: " reply || true
+  reply="${reply:-$default_source}"
+  printf '%s' "$reply"
+}
+
 ensure_runtime_dirs() {
   mkdir -p "$RUNTIME_DIR" "$VENV_DIR" "$ULTRA_CFG_DIR" "$WEIGHTS_DIR" "$RUNS_DIR" "$DATASETS_DIR" "$PIP_CACHE_DIR_LOCAL"
 }
 
 ensure_system_pkgs_best_effort() {
-  # Minimal best-effort; don't hard-fail if sudo isn't available.
   if [[ "$OS_NAME" == "Linux" ]] && need_cmd apt-get; then
     local pkgs=(python3 python3-pip python3-venv)
     local missing=()
@@ -103,15 +183,11 @@ ensure_venv() {
 
 install_pip_deps() {
   python -m pip install --upgrade pip wheel setuptools >/dev/null
-  # Inline deps (no requirements.txt)
   python -m pip install ultralytics opencv-python numpy "lap>=0.5.12"
 }
 
-# ---------------------------
-# Parse launcher args
-# ---------------------------
 SILENT=0
-INSTALL_MODE="ask"   # ask|force|skip
+INSTALL_MODE="ask"
 FORWARD=()
 
 while [[ $# -gt 0 ]]; do
@@ -120,7 +196,7 @@ while [[ $# -gt 0 ]]; do
     --install) INSTALL_MODE="force"; shift;;
     --no-install) INSTALL_MODE="skip"; shift;;
     --help|-h)
-      cat <<'EOF'
+      cat <<'HELP'
 Usage:
   ./run.sh [-s|--silent] [--install|--no-install] [webcam.py args...]
 
@@ -131,7 +207,7 @@ Notes:
 
 See also:
   ./run.sh --help-web
-EOF
+HELP
       exit 0
       ;;
     *) FORWARD+=("$1"); shift;;
@@ -146,7 +222,6 @@ elif [[ "$INSTALL_MODE" == "force" ]]; then
 elif [[ "$SILENT" == "1" ]]; then
   DO_INSTALL=1
 else
-  # default Yes
   read -r -p "Run setup/install step (venv + pip deps)? [Y/n]: " reply || true
   reply="${reply:-Y}"
   if [[ "${reply,,}" == "n" || "${reply,,}" == "no" ]]; then
@@ -166,24 +241,23 @@ else
 fi
 
 [[ -f "webcam.py" ]] || die "webcam.py not found in: $SCRIPT_DIR"
-[[ -f "webstream.py" ]] || warn "webstream.py missing. Web server mode will fail unless you add it to worker repo."
 
-# Configure Ultralytics settings to stay inside .runtime (best-effort)
 export YOLO_CONFIG_DIR="$SCRIPT_DIR/$ULTRA_CFG_DIR"
 export SC_WEIGHTS_DIR="$SCRIPT_DIR/$WEIGHTS_DIR"
 export SC_RUNS_DIR="$SCRIPT_DIR/$RUNS_DIR"
 export SC_DATASETS_DIR="$SCRIPT_DIR/$DATASETS_DIR"
 
-# Forward defaults from webcam.properties if user didn't pass them
-if ! has_arg "--source" "${FORWARD[@]}" && ! has_arg "--cam" "${FORWARD[@]}"; then
-  if [[ "$OS_NAME" == "Linux" ]]; then
-    FORWARD=(--source "${DEFAULT_SOURCE_LINUX:-0}" "${FORWARD[@]}")
+if ! has_opt "--source" "${FORWARD[@]}" && ! has_opt "--cam" "${FORWARD[@]}"; then
+  default_source="$(default_source_for_os)"
+  if [[ "$SILENT" == "1" || ! -t 0 ]]; then
+    selected_source="$default_source"
   else
-    FORWARD=(--source "${DEFAULT_SOURCE_WINDOWS:-0}" "${FORWARD[@]}")
+    selected_source="$(prompt_for_source "$default_source")"
   fi
+  FORWARD=(--source "$selected_source" "${FORWARD[@]}")
 fi
 
-if ! has_arg "--device" "${FORWARD[@]}"; then
+if ! has_opt "--device" "${FORWARD[@]}"; then
   FORWARD=(--device "${DEFAULT_DEVICE:-auto}" "${FORWARD[@]}")
 fi
 
@@ -191,8 +265,37 @@ if ! has_arg "--max-fps" "${FORWARD[@]}"; then
   FORWARD+=(--max-fps "${DEFAULT_MAX_FPS:-120}")
 fi
 
-if [[ "${DEFAULT_USE_POSE:-1}" == "1" ]] && ! has_arg "--no-pose" "${FORWARD[@]}" && ! has_arg "--use-pose" "${FORWARD[@]}"; then
+if [[ "${DEFAULT_USE_POSE:-1}" == "1" ]] && ! has_opt "--no-pose" "${FORWARD[@]}" && ! has_opt "--use-pose" "${FORWARD[@]}"; then
   FORWARD+=(--use-pose)
+fi
+
+FINAL_SOURCE=""
+for ((i=0; i<${#FORWARD[@]}; i++)); do
+  case "${FORWARD[$i]}" in
+    --source)
+      if (( i + 1 < ${#FORWARD[@]} )); then
+        FINAL_SOURCE="${FORWARD[$((i + 1))]}"
+      fi
+      ;;
+    --source=*) FINAL_SOURCE="${FORWARD[$i]#--source=}" ;;
+    --cam)
+      if (( i + 1 < ${#FORWARD[@]} )); then
+        FINAL_SOURCE="${FORWARD[$((i + 1))]}"
+      fi
+      ;;
+    --cam=*) FINAL_SOURCE="${FORWARD[$i]#--cam=}" ;;
+  esac
+  [[ -n "$FINAL_SOURCE" ]] && break
+done
+
+if [[ -n "$FINAL_SOURCE" ]]; then
+  if ! validate_source "$FINAL_SOURCE"; then
+    if [[ "$FINAL_SOURCE" =~ ^[0-9]+$ ]]; then
+      die "Selected camera '$FINAL_SOURCE' is not available."
+    else
+      die "Selected source '$FINAL_SOURCE' could not be opened."
+    fi
+  fi
 fi
 
 exec python webcam.py "${FORWARD[@]}"

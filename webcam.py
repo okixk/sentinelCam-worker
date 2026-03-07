@@ -675,6 +675,12 @@ def main():
 
     # Tracking
     ap.add_argument("--tracker", type=str, default="bytetrack.yaml", help="Ultralytics tracker config")
+    ap.add_argument(
+        "--source-read-fail-limit",
+        type=int,
+        default=12,
+        help="Stop the worker after this many consecutive failed source reads. 0 = retry forever.",
+    )
 
     # Logging noise control
     ap.add_argument(
@@ -918,6 +924,8 @@ def main():
     frame_count = 0
     last_fps_time = time.time()
     fps_smooth = 0.0
+    source_read_failures = 0
+    source_read_fail_limit = max(0, int(args.source_read_fail_limit))
 
     # -----------------------------
     # Output mode: Web server (default) + optional preview window
@@ -1094,6 +1102,7 @@ def main():
         nonlocal frame_count, last_fps_time, fps_smooth
         nonlocal cycle_idx, active_preset_name, det_model, pose_model, names
         nonlocal det_weights, pose_weights, pose_enabled
+        nonlocal source_read_failures
         nonlocal overlay_enabled, inference_enabled, _saved_pose_enabled, _saved_overlay_enabled
 
         try:
@@ -1225,15 +1234,36 @@ def main():
                 loop_start = time.time()
                 ret, frame = cap.read()
                 if not ret or frame is None:
+                    source_read_failures += 1
+
+                    if source_read_fail_limit > 0 and source_read_failures >= source_read_fail_limit:
+                        stop_msg = "Input stream ended or camera/source was disconnected; stopping worker."
+                        _update_state(
+                            busy=False,
+                            busy_text=None,
+                            last_error=stop_msg,
+                            last_error_ts=time.time(),
+                            worker_alive=False,
+                        )
+                        print(stop_msg)
+                        stop_event.set()
+                        break
+
+                    retry_msg = "Camera read failed; retrying…"
+                    if source_read_fail_limit > 0:
+                        retry_msg = f"Camera read failed ({source_read_failures}/{source_read_fail_limit}); retrying…"
+
                     _update_state(
                         busy=False,
                         busy_text=None,
-                        last_error="Camera read failed; retrying…",
+                        last_error=retry_msg,
                         last_error_ts=time.time(),
                         worker_alive=True,
                     )
                     time.sleep(0.25)
                     continue
+
+                source_read_failures = 0
 
                 # Stream-only mode: no model inference, no overlay (raw frames only)
                 if not inference_enabled:
