@@ -178,6 +178,19 @@ def draw_label(frame, x, y, text):
     )
 
 
+def draw_top_right_label(frame, text, y=25, pad=10):
+    """Draw a readable label aligned to the top-right corner."""
+    (text_w, _text_h), _baseline = cv2.getTextSize(
+        text,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        1,
+    )
+    frame_w = frame.shape[1]
+    x = max(pad, frame_w - text_w - pad)
+    draw_label(frame, x, y, text)
+
+
 def _open_capture(source: str, width: int, height: int):
     """OpenCV VideoCapture opener.
 
@@ -675,12 +688,6 @@ def main():
 
     # Tracking
     ap.add_argument("--tracker", type=str, default="bytetrack.yaml", help="Ultralytics tracker config")
-    ap.add_argument(
-        "--source-read-fail-limit",
-        type=int,
-        default=12,
-        help="Stop the worker after this many consecutive failed source reads. 0 = retry forever.",
-    )
 
     # Logging noise control
     ap.add_argument(
@@ -924,8 +931,6 @@ def main():
     frame_count = 0
     last_fps_time = time.time()
     fps_smooth = 0.0
-    source_read_failures = 0
-    source_read_fail_limit = max(0, int(args.source_read_fail_limit))
 
     # -----------------------------
     # Output mode: Web server (default) + optional preview window
@@ -1102,7 +1107,6 @@ def main():
         nonlocal frame_count, last_fps_time, fps_smooth
         nonlocal cycle_idx, active_preset_name, det_model, pose_model, names
         nonlocal det_weights, pose_weights, pose_enabled
-        nonlocal source_read_failures
         nonlocal overlay_enabled, inference_enabled, _saved_pose_enabled, _saved_overlay_enabled
 
         try:
@@ -1234,36 +1238,20 @@ def main():
                 loop_start = time.time()
                 ret, frame = cap.read()
                 if not ret or frame is None:
-                    source_read_failures += 1
-
-                    if source_read_fail_limit > 0 and source_read_failures >= source_read_fail_limit:
-                        stop_msg = "Input stream ended or camera/source was disconnected; stopping worker."
-                        _update_state(
-                            busy=False,
-                            busy_text=None,
-                            last_error=stop_msg,
-                            last_error_ts=time.time(),
-                            worker_alive=False,
-                        )
-                        print(stop_msg)
-                        stop_event.set()
-                        break
-
-                    retry_msg = "Camera read failed; retrying…"
-                    if source_read_fail_limit > 0:
-                        retry_msg = f"Camera read failed ({source_read_failures}/{source_read_fail_limit}); retrying…"
-
                     _update_state(
                         busy=False,
                         busy_text=None,
-                        last_error=retry_msg,
+                        last_error="Camera read failed; retrying…",
                         last_error_ts=time.time(),
                         worker_alive=True,
                     )
                     time.sleep(0.25)
                     continue
 
-                source_read_failures = 0
+                # Burn in a capture timestamp immediately after grabbing the frame,
+                # so it becomes part of the raw source before any YOLO processing.
+                capture_stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                draw_top_right_label(frame, capture_stamp, y=25, pad=10)
 
                 # Stream-only mode: no model inference, no overlay (raw frames only)
                 if not inference_enabled:

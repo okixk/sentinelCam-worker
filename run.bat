@@ -4,8 +4,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM sentinelCam-worker launcher (run.bat)
 REM - creates/uses venv in .runtime\venv
 REM - installs python deps via inline pip list (NO requirements.txt)
-REM - runs webcam.py
-REM Web streaming is provided by THIS worker repo (webstream.py).
+REM - asks for the desired camera/stream source if none was passed
+REM - validates the selected source before starting webcam.py
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
@@ -47,25 +47,54 @@ set "WEIGHTS_DIR=%RUNTIME_DIR%\%WEIGHTS_SUBDIR%"
 set "RUNS_DIR=%RUNTIME_DIR%\%RUNS_SUBDIR%"
 set "DATASETS_DIR=%RUNTIME_DIR%\%DATASETS_SUBDIR%"
 set "PIP_CACHE_DIR_LOCAL=%RUNTIME_DIR%\%PIP_CACHE_SUBDIR%"
+set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 
 REM ---------------------------
 REM Parse launcher args
 REM ---------------------------
 set "SILENT=0"
 set "INSTALL_MODE=ask"
-REM ask/force/skip
 set "FWD_ARGS="
+set "HAS_SOURCE=0"
+set "HAS_DEVICE=0"
+set "HAS_MAXFPS=0"
+set "HAS_USE_POSE=0"
+set "HAS_NO_POSE=0"
+set "EXPECT_SOURCE_VALUE=0"
+set "FINAL_SOURCE="
 
 :parse
 if "%~1"=="" goto after_parse
-if /i "%~1"=="-s"        set "SILENT=1" & shift & goto parse
-if /i "%~1"=="--silent"  set "SILENT=1" & shift & goto parse
-if /i "%~1"=="--install" set "INSTALL_MODE=force" & shift & goto parse
-if /i "%~1"=="--no-install" set "INSTALL_MODE=skip" & shift & goto parse
-if /i "%~1"=="--help" goto help
-if /i "%~1"=="-h" goto help
 
-REM forward arg
+if "%EXPECT_SOURCE_VALUE%"=="1" (
+  set "FINAL_SOURCE=%~1"
+  set "EXPECT_SOURCE_VALUE=0"
+)
+
+if /i "%~1"=="-s"             set "SILENT=1" & shift & goto parse
+if /i "%~1"=="--silent"       set "SILENT=1" & shift & goto parse
+if /i "%~1"=="--install"      set "INSTALL_MODE=force" & shift & goto parse
+if /i "%~1"=="--no-install"   set "INSTALL_MODE=skip" & shift & goto parse
+if /i "%~1"=="--help"         goto help
+if /i "%~1"=="-h"             goto help
+if /i "%~1"=="--help-web"     goto help_web
+
+set "ARG=%~1"
+
+if /i "%~1"=="--source" set "HAS_SOURCE=1" & set "EXPECT_SOURCE_VALUE=1"
+if /i "%~1"=="--cam"    set "HAS_SOURCE=1" & set "EXPECT_SOURCE_VALUE=1"
+if /i "%ARG:~0,9%"=="--source=" set "HAS_SOURCE=1" & set "FINAL_SOURCE=%ARG:~9%"
+if /i "%ARG:~0,6%"=="--cam="    set "HAS_SOURCE=1" & set "FINAL_SOURCE=%ARG:~6%"
+
+if /i "%~1"=="--device" set "HAS_DEVICE=1"
+if /i "%ARG:~0,9%"=="--device=" set "HAS_DEVICE=1"
+
+if /i "%~1"=="--max-fps" set "HAS_MAXFPS=1"
+if /i "%ARG:~0,10%"=="--max-fps=" set "HAS_MAXFPS=1"
+
+if /i "%~1"=="--use-pose" set "HAS_USE_POSE=1"
+if /i "%~1"=="--no-pose"  set "HAS_NO_POSE=1"
+
 set "FWD_ARGS=%FWD_ARGS% %~1"
 shift
 goto parse
@@ -78,13 +107,34 @@ echo Notes:
 echo   - web server is the default (webcam.py defaults web=True)
 echo   - window is optional: add --window
 echo   - disable web server: --no-web
+echo.
+echo See also:
+echo   run.bat --help-web
+exit /b 0
+
+:help_web
+echo sentinelCam-worker launcher (run.bat)
+echo.
+echo This script ONLY manages the worker repo:
+echo   - creates/uses a venv in .runtime\venv
+echo   - installs python deps via an inline pip list (NO requirements.txt)
+echo   - starts webcam.py
+echo.
+echo The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
+echo.
+echo Examples:
+echo   run.bat
+echo   run.bat --no-install
+echo   run.bat --no-web
+echo   run.bat --window
+echo   run.bat --host 0.0.0.0 --port 8080
 exit /b 0
 
 :after_parse
 
 REM Decide install
 set "DO_INSTALL=1"
-if /i "%INSTALL_MODE%"=="skip"  set "DO_INSTALL=0"
+if /i "%INSTALL_MODE%"=="skip" set "DO_INSTALL=0"
 if /i "%INSTALL_MODE%"=="force" set "DO_INSTALL=1"
 
 if /i "%INSTALL_MODE%"=="ask" (
@@ -93,7 +143,7 @@ if /i "%INSTALL_MODE%"=="ask" (
   ) else (
     set /p "REPLY=Run setup/install step (venv + pip deps)? [Y/n]: "
     if "!REPLY!"=="" set "REPLY=Y"
-    if /i "!REPLY!"=="n"  set "DO_INSTALL=0"
+    if /i "!REPLY!"=="n" set "DO_INSTALL=0"
     if /i "!REPLY!"=="no" set "DO_INSTALL=0"
   )
 )
@@ -107,27 +157,31 @@ if not exist "%DATASETS_DIR%" mkdir "%DATASETS_DIR%" >nul 2>&1
 if not exist "%PIP_CACHE_DIR_LOCAL%" mkdir "%PIP_CACHE_DIR_LOCAL%" >nul 2>&1
 
 REM venv
-if not exist "%VENV_DIR%\Scripts\python.exe" (
+if not exist "%PYTHON_EXE%" (
   echo Creating venv: %VENV_DIR%
   py -3 -m venv "%VENV_DIR%" >nul 2>&1
   if errorlevel 1 (
-    python -m venv "%VENV_DIR%" || (
+    python -m venv "%VENV_DIR%"
+    if errorlevel 1 (
       echo ERROR: Failed to create venv. Install Python 3 and try again.
       exit /b 1
     )
   )
 )
 
-call "%VENV_DIR%\Scripts\activate.bat"
+if not exist "%PYTHON_EXE%" (
+  echo ERROR: Python venv executable not found: %PYTHON_EXE%
+  exit /b 1
+)
 
 set "PIP_CACHE_DIR=%SCRIPT_DIR%%PIP_CACHE_DIR_LOCAL%"
-python -m pip install --upgrade pip wheel setuptools >nul 2>&1
 
 if "%DO_INSTALL%"=="1" (
-  echo Installing python deps...
-  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" || exit /b 1
+  "%PYTHON_EXE%" -m pip install --upgrade pip wheel setuptools >nul 2>&1
+  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12"
+  if errorlevel 1 exit /b 1
 ) else (
-  echo Skipping install ^(--no-install^) . Assuming deps already exist.
+  echo Skipping install ^(--no-install^). Assuming venv + deps already exist.
 )
 
 if not exist "webcam.py" (
@@ -141,33 +195,93 @@ set "SC_WEIGHTS_DIR=%SCRIPT_DIR%%WEIGHTS_DIR%"
 set "SC_RUNS_DIR=%SCRIPT_DIR%%RUNS_DIR%"
 set "SC_DATASETS_DIR=%SCRIPT_DIR%%DATASETS_DIR%"
 
-REM Add defaults if not provided
-echo %FWD_ARGS% | findstr /i /c:"--source" >nul
-if errorlevel 1 (
-  set "FWD_ARGS=--source %DEFAULT_SOURCE_WINDOWS% %FWD_ARGS%"
+REM Ask for source if none was passed
+if "%HAS_SOURCE%"=="0" (
+  set "SELECTED_SOURCE=%DEFAULT_SOURCE_WINDOWS%"
+  if not "%SILENT%"=="1" (
+    set /p "SELECTED_SOURCE=Which cam index or stream URL/path should YOLO use? [%DEFAULT_SOURCE_WINDOWS%]: "
+    if "!SELECTED_SOURCE!"=="" set "SELECTED_SOURCE=%DEFAULT_SOURCE_WINDOWS%"
+  )
+  set "FINAL_SOURCE=!SELECTED_SOURCE!"
+  set FWD_ARGS=--source "!SELECTED_SOURCE!" %FWD_ARGS%
 )
 
-echo %FWD_ARGS% | findstr /i /c:"--device" >nul
-if errorlevel 1 (
-  set "FWD_ARGS=--device %DEFAULT_DEVICE% %FWD_ARGS%"
-)
+REM Add defaults if not already provided
+if "%HAS_DEVICE%"=="0" set FWD_ARGS=--device "%DEFAULT_DEVICE%" %FWD_ARGS%
+if "%HAS_MAXFPS%"=="0" set FWD_ARGS=%FWD_ARGS% --max-fps "%DEFAULT_MAX_FPS%"
+if "%DEFAULT_USE_POSE%"=="1" if "%HAS_NO_POSE%"=="0" if "%HAS_USE_POSE%"=="0" set "FWD_ARGS=%FWD_ARGS% --use-pose"
 
-echo %FWD_ARGS% | findstr /i /c:"--max-fps" >nul
-if errorlevel 1 (
-  set "FWD_ARGS=%FWD_ARGS% --max-fps %DEFAULT_MAX_FPS%"
-)
-
-if "%DEFAULT_USE_POSE%"=="1" (
-  echo %FWD_ARGS% | findstr /i /c:"--no-pose" >nul
+REM Validate final source before starting webcam.py
+if not "%FINAL_SOURCE%"=="" (
+  call :validate_source "%FINAL_SOURCE%"
   if errorlevel 1 (
-    echo %FWD_ARGS% | findstr /i /c:"--use-pose" >nul
-    if errorlevel 1 (
-      set "FWD_ARGS=%FWD_ARGS% --use-pose"
+    call :is_numeric "%FINAL_SOURCE%"
+    if not errorlevel 1 (
+      echo ERROR: Selected camera '%FINAL_SOURCE%' is not available.
+    ) else (
+      echo ERROR: Selected source '%FINAL_SOURCE%' could not be opened.
     )
+    exit /b 1
   )
 )
 
-REM Run
-python webcam.py %FWD_ARGS%
+"%PYTHON_EXE%" webcam.py %FWD_ARGS%
 set "RC=%ERRORLEVEL%"
+exit /b %RC%
+
+:is_numeric
+"%PYTHON_EXE%" -c "import sys; raise SystemExit(0 if sys.argv[1].isdigit() else 1)" "%~1" >nul 2>&1
+exit /b %ERRORLEVEL%
+
+:validate_source
+set "SRC_TO_VALIDATE=%~1"
+set "VALIDATE_PY=%TEMP%\sentinelcam_validate_source_%RANDOM%%RANDOM%.py"
+
+> "%VALIDATE_PY%" (
+  echo import sys
+  echo import cv2
+  echo src = sys.argv[1]
+  echo ok = False
+  echo try:
+  echo     if isinstance(src, str^) and src.isdigit(^):
+  echo         idx = int(src^)
+  echo         backends = [None]
+  echo         if sys.platform.startswith("win"^) and hasattr(cv2, "CAP_DSHOW"^):
+  echo             backends = [cv2.CAP_DSHOW, None]
+  echo         elif sys.platform == "darwin" and hasattr(cv2, "CAP_AVFOUNDATION"^):
+  echo             backends = [cv2.CAP_AVFOUNDATION, None]
+  echo         for backend in backends:
+  echo             cap = cv2.VideoCapture(idx, backend^) if backend is not None else cv2.VideoCapture(idx^)
+  echo             try:
+  echo                 if cap is not None and cap.isOpened(^):
+  echo                     ret, _frame = cap.read(^)
+  echo                     if ret:
+  echo                         ok = True
+  echo                         break
+  echo             finally:
+  echo                 try:
+  echo                     if cap is not None:
+  echo                         cap.release(^)
+  echo                 except Exception:
+  echo                     pass
+  echo     else:
+  echo         cap = cv2.VideoCapture(src^)
+  echo         try:
+  echo             if cap is not None and cap.isOpened(^):
+  echo                 ret, _frame = cap.read(^)
+  echo                 ok = bool(ret^)
+  echo         finally:
+  echo             try:
+  echo                 if cap is not None:
+  echo                     cap.release(^)
+  echo             except Exception:
+  echo                 pass
+  echo except Exception:
+  echo     ok = False
+  echo raise SystemExit(0 if ok else 1^)
+)
+
+"%PYTHON_EXE%" "%VALIDATE_PY%" "%SRC_TO_VALIDATE%" >nul 2>&1
+set "RC=%ERRORLEVEL%"
+del "%VALIDATE_PY%" >nul 2>&1
 exit /b %RC%
