@@ -16,6 +16,9 @@ This script ONLY manages the worker repo:
   - starts webcam.py
 
 The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
+If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
+By default the worker binds only to 127.0.0.1. Change DEFAULT_WEB_HOST in webcam.properties
+or pass --host 0.0.0.0 to expose it on the LAN.
 
 Examples:
   ./run.sh
@@ -42,6 +45,7 @@ WEIGHTS_SUBDIR="${WEIGHTS_SUBDIR:-weights}"
 RUNS_SUBDIR="${RUNS_SUBDIR:-runs}"
 DATASETS_SUBDIR="${DATASETS_SUBDIR:-datasets}"
 PIP_CACHE_SUBDIR="${PIP_CACHE_SUBDIR:-pip-cache}"
+DEFAULT_WEB_HOST="${DEFAULT_WEB_HOST:-127.0.0.1}"
 
 VENV_DIR="$RUNTIME_DIR/$VENV_SUBDIR"
 ULTRA_CFG_DIR="$RUNTIME_DIR/$ULTRA_CFG_SUBDIR"
@@ -74,6 +78,22 @@ has_opt() {
     [[ "$a" == "$name" || "$a" == "$name="* ]] && return 0
   done
   return 1
+}
+
+default_host_choice() {
+  if [[ "${DEFAULT_WEB_HOST:-127.0.0.1}" == "0.0.0.0" ]]; then
+    printf '%s' "2"
+  else
+    printf '%s' "1"
+  fi
+}
+
+resolve_host_choice() {
+  case "$1" in
+    1) printf '%s' "127.0.0.1" ;;
+    2) printf '%s' "0.0.0.0" ;;
+    *) printf '%s' "${DEFAULT_WEB_HOST:-127.0.0.1}" ;;
+  esac
 }
 
 default_source_for_os() {
@@ -149,6 +169,22 @@ prompt_for_source() {
   printf '%s' "$reply"
 }
 
+prompt_for_host_choice() {
+  local default_choice="$1"
+  local reply=""
+  while true; do
+    read -r -p "Stream host waehlen: [1] localhost/127.0.0.1, [2] alle Interfaces/0.0.0.0 [${default_choice}]: " reply || true
+    reply="${reply:-$default_choice}"
+    case "$reply" in
+      1|2)
+        printf '%s' "$reply"
+        return 0
+        ;;
+    esac
+    warn "Bitte nur 1 oder 2 eingeben."
+  done
+}
+
 ensure_runtime_dirs() {
   mkdir -p "$RUNTIME_DIR" "$VENV_DIR" "$ULTRA_CFG_DIR" "$WEIGHTS_DIR" "$RUNS_DIR" "$DATASETS_DIR" "$PIP_CACHE_DIR_LOCAL"
 }
@@ -202,6 +238,8 @@ Usage:
 
 Notes:
   - web server is the default (webcam.py defaults web=True)
+  - default bind host is 127.0.0.1 (localhost only)
+  - if --host is not passed, the script offers [1]=localhost and [2]=0.0.0.0
   - window is optional: add --window
   - disable web server: --no-web
 
@@ -259,6 +297,17 @@ fi
 
 if ! has_opt "--device" "${FORWARD[@]}"; then
   FORWARD=(--device "${DEFAULT_DEVICE:-auto}" "${FORWARD[@]}")
+fi
+
+if ! has_opt "--host" "${FORWARD[@]}"; then
+  default_host_choice_value="$(default_host_choice)"
+  if [[ "$SILENT" == "1" || ! -t 0 ]]; then
+    selected_host="$(resolve_host_choice "$default_host_choice_value")"
+  else
+    selected_host_choice="$(prompt_for_host_choice "$default_host_choice_value")"
+    selected_host="$(resolve_host_choice "$selected_host_choice")"
+  fi
+  FORWARD=(--host "$selected_host" "${FORWARD[@]}")
 fi
 
 if ! has_arg "--max-fps" "${FORWARD[@]}"; then

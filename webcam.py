@@ -738,7 +738,7 @@ def main():
         help="Disable local OpenCV preview window (default).",
     )
 
-    ap.add_argument("--host", type=str, default="0.0.0.0", help="Web server bind host (when --web)")
+    ap.add_argument("--host", type=str, default="127.0.0.1", help="Web server bind host (when --web)")
     ap.add_argument("--port", type=int, default=8080, help="Web server port (when --web)")
     ap.add_argument(
         "--stream",
@@ -786,6 +786,7 @@ def main():
     if args.help_web:
         print("sentinelCam Web-Startoptionen")
         print("  --web/--no-web --stream webrtc|mjpeg|auto --host HOST --port PORT")
+        print("  Default bind host: 127.0.0.1 (localhost only)")
         print("  Optional debug: --window (show OpenCV preview + hotkeys)")
         print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --advertise-ip IP --rtc-min-port 50000 --rtc-max-port 60000")
         print("  MJPEG:  --jpeg-quality 10-95")
@@ -1590,6 +1591,8 @@ def main():
         def _start_server_blocking():
             display_host = args.host
             if display_host in ("0.0.0.0", "::", "", None):
+                display_host = "localhost"
+            elif display_host in ("127.0.0.1", "::1"):
                 display_host = "localhost"
             mode = (args.stream or "auto").lower().strip()
             try:

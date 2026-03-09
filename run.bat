@@ -25,6 +25,7 @@ set "DEFAULT_SOURCE_WINDOWS=0"
 set "DEFAULT_DEVICE=auto"
 set "DEFAULT_USE_POSE=1"
 set "DEFAULT_MAX_FPS=120"
+set "DEFAULT_WEB_HOST=127.0.0.1"
 
 REM Read webcam.properties (KEY=VALUE, ignore # comments)
 if exist "%CFG_FILE%" (
@@ -57,11 +58,13 @@ set "INSTALL_MODE=ask"
 set "FWD_ARGS="
 set "HAS_SOURCE=0"
 set "HAS_DEVICE=0"
+set "HAS_HOST=0"
 set "HAS_MAXFPS=0"
 set "HAS_USE_POSE=0"
 set "HAS_NO_POSE=0"
 set "EXPECT_SOURCE_VALUE=0"
 set "FINAL_SOURCE="
+set "SELECTED_HOST=%DEFAULT_WEB_HOST%"
 
 :parse
 if "%~1"=="" goto after_parse
@@ -89,6 +92,9 @@ if /i "%ARG:~0,6%"=="--cam="    set "HAS_SOURCE=1" & set "FINAL_SOURCE=%ARG:~6%"
 if /i "%~1"=="--device" set "HAS_DEVICE=1"
 if /i "%ARG:~0,9%"=="--device=" set "HAS_DEVICE=1"
 
+if /i "%~1"=="--host" set "HAS_HOST=1"
+if /i "%ARG:~0,7%"=="--host=" set "HAS_HOST=1"
+
 if /i "%~1"=="--max-fps" set "HAS_MAXFPS=1"
 if /i "%ARG:~0,10%"=="--max-fps=" set "HAS_MAXFPS=1"
 
@@ -105,6 +111,8 @@ echo   run.bat [-s^|--silent] [--install^|--no-install] [webcam.py args...]
 echo.
 echo Notes:
 echo   - web server is the default (webcam.py defaults web=True)
+echo   - default bind host is 127.0.0.1 (localhost only)
+echo   - if --host is omitted, the script asks: 1=localhost, 2=0.0.0.0
 echo   - window is optional: add --window
 echo   - disable web server: --no-web
 echo.
@@ -121,6 +129,9 @@ echo   - installs python deps via an inline pip list (NO requirements.txt)
 echo   - starts webcam.py
 echo.
 echo The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
+echo By default the worker binds only to 127.0.0.1.
+echo If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
+echo Change DEFAULT_WEB_HOST in webcam.properties or pass --host 0.0.0.0 for LAN access.
 echo.
 echo Examples:
 echo   run.bat
@@ -208,6 +219,17 @@ if "%HAS_SOURCE%"=="0" (
 
 REM Add defaults if not already provided
 if "%HAS_DEVICE%"=="0" set FWD_ARGS=--device "%DEFAULT_DEVICE%" %FWD_ARGS%
+if "%HAS_HOST%"=="0" (
+  if /i "%DEFAULT_WEB_HOST%"=="0.0.0.0" (
+    set "DEFAULT_HOST_CHOICE=2"
+  ) else (
+    set "DEFAULT_HOST_CHOICE=1"
+  )
+  if not "%SILENT%"=="1" (
+    call :prompt_host_choice "%DEFAULT_HOST_CHOICE%"
+  )
+  set FWD_ARGS=--host "%SELECTED_HOST%" %FWD_ARGS%
+)
 if "%HAS_MAXFPS%"=="0" set FWD_ARGS=%FWD_ARGS% --max-fps "%DEFAULT_MAX_FPS%"
 if "%DEFAULT_USE_POSE%"=="1" if "%HAS_NO_POSE%"=="0" if "%HAS_USE_POSE%"=="0" set "FWD_ARGS=%FWD_ARGS% --use-pose"
 
@@ -285,3 +307,20 @@ set "VALIDATE_PY=%TEMP%\sentinelcam_validate_source_%RANDOM%%RANDOM%.py"
 set "RC=%ERRORLEVEL%"
 del "%VALIDATE_PY%" >nul 2>&1
 exit /b %RC%
+
+:prompt_host_choice
+set "HOST_CHOICE="
+set "DEFAULT_HOST_CHOICE=%~1"
+:prompt_host_choice_loop
+set /p "HOST_CHOICE=Stream host waehlen [1=localhost/127.0.0.1, 2=alle Interfaces/0.0.0.0] [%DEFAULT_HOST_CHOICE%]: "
+if "!HOST_CHOICE!"=="" set "HOST_CHOICE=%DEFAULT_HOST_CHOICE%"
+if "!HOST_CHOICE!"=="1" (
+  set "SELECTED_HOST=127.0.0.1"
+  exit /b 0
+)
+if "!HOST_CHOICE!"=="2" (
+  set "SELECTED_HOST=0.0.0.0"
+  exit /b 0
+)
+echo Bitte nur 1 oder 2 eingeben.
+goto prompt_host_choice_loop
