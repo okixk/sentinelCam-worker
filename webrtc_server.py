@@ -22,6 +22,237 @@ from av import VideoFrame
 from stream_server import ControlAPI, FrameHub, SecurityConfig
 
 
+TEST_PAGE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sentinelCam WebRTC Test</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f2efe8;
+      --panel: #fffaf2;
+      --ink: #1f1a17;
+      --accent: #c65f2d;
+      --muted: #6f655d;
+      --border: #d8cbbd;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at top, #fff7ea, var(--bg));
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+    .head {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      font-size: 24px;
+      margin: 0 0 8px;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+    video {
+      display: block;
+      width: 100%;
+      background: #000;
+      aspect-ratio: 16 / 9;
+    }
+    .body {
+      padding: 16px 20px 20px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+      font: inherit;
+    }
+    button.secondary {
+      background: #8a8178;
+    }
+    code, pre {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    .status {
+      font-weight: 600;
+    }
+    pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 12px;
+      background: #201a17;
+      color: #f7efe8;
+      overflow: auto;
+      max-height: 220px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="panel">
+      <div class="head">
+        <h1>sentinelCam WebRTC Test</h1>
+        <p>This page talks to the worker on the same origin and helps verify whether WebRTC works before debugging your external HTML server.</p>
+      </div>
+      <video id="stream" autoplay playsinline muted></video>
+      <div class="body">
+        <div class="row">
+          <button id="connectBtn" type="button">Connect</button>
+          <button id="disconnectBtn" class="secondary" type="button">Disconnect</button>
+          <span class="status" id="status">Idle</span>
+        </div>
+        <pre id="log"></pre>
+      </div>
+    </div>
+  </main>
+  <script>
+    let pc = null;
+    const video = document.getElementById("stream");
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+    const connectBtn = document.getElementById("connectBtn");
+    const disconnectBtn = document.getElementById("disconnectBtn");
+
+    function log(message) {
+      const ts = new Date().toLocaleTimeString();
+      logEl.textContent += `[${ts}] ${message}\\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+      log(message);
+    }
+
+    async function waitForIceComplete(peer) {
+      await new Promise((resolve) => {
+        if (peer.iceGatheringState === "complete") {
+          resolve();
+          return;
+        }
+        const onStateChange = () => {
+          if (peer.iceGatheringState === "complete") {
+            peer.removeEventListener("icegatheringstatechange", onStateChange);
+            resolve();
+          }
+        };
+        peer.addEventListener("icegatheringstatechange", onStateChange);
+      });
+    }
+
+    async function disconnect() {
+      if (pc) {
+        try {
+          pc.ontrack = null;
+          pc.close();
+        } catch (err) {
+          log(`close error: ${err}`);
+        }
+        pc = null;
+      }
+      video.srcObject = null;
+      setStatus("Disconnected");
+    }
+
+    async function connect() {
+      await disconnect();
+      setStatus("Creating peer connection");
+      pc = new RTCPeerConnection();
+      pc.addTransceiver("video", { direction: "recvonly" });
+
+      pc.ontrack = (event) => {
+        const stream = event.streams && event.streams[0];
+        if (stream) {
+          video.srcObject = stream;
+          setStatus("Receiving video");
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        log(`connectionState=${pc.connectionState}`);
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        log(`iceConnectionState=${pc.iceConnectionState}`);
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitForIceComplete(pc);
+
+      setStatus("Sending offer");
+      const response = await fetch("/api/webrtc/offer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sdp: pc.localDescription.sdp,
+          type: pc.localDescription.type
+        })
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`offer failed: ${response.status} ${body}`);
+      }
+
+      const answer = await response.json();
+      await pc.setRemoteDescription(answer);
+      setStatus("Connected, waiting for video");
+    }
+
+    connectBtn.addEventListener("click", () => {
+      connect().catch((err) => {
+        setStatus(`Failed: ${err}`);
+      });
+    });
+
+    disconnectBtn.addEventListener("click", () => {
+      disconnect().catch((err) => {
+        setStatus(`Disconnect failed: ${err}`);
+      });
+    });
+
+    window.addEventListener("beforeunload", () => {
+      if (pc) {
+        pc.close();
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 def _request_origin(request: web.Request) -> str:
     origin = (request.headers.get("Origin", "") or "").strip()
     if origin:
@@ -323,11 +554,41 @@ async def _run_webrtc_server(
             {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type},
         )
 
+    async def handle_offer_info(request: web.Request) -> web.Response:
+        error = _check_origin_and_auth(request, security, require_auth=False)
+        if error is not None:
+            return error
+        return _json_response(
+            request,
+            security,
+            {
+                "ok": True,
+                "endpoint": "/api/webrtc/offer",
+                "method": "POST",
+                "message": "This is a WebRTC signaling endpoint, not a direct video URL. Open /webrtc-test or use your HTML page to POST an SDP offer.",
+            },
+        )
+
+    async def handle_test_page(request: web.Request) -> web.Response:
+        error = _check_origin_and_auth(request, security, require_auth=False)
+        if error is not None:
+            return error
+        response = web.Response(text=TEST_PAGE_HTML, content_type="text/html", charset="utf-8")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        _apply_common_headers(response)
+        _apply_cors_headers(response, request, security)
+        return response
+
     app = web.Application()
     app.router.add_route("OPTIONS", "/{tail:.*}", handle_options)
+    app.router.add_get("/", handle_test_page)
+    app.router.add_get("/webrtc-test", handle_test_page)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/state", handle_state)
+    app.router.add_get("/offer", handle_offer_info)
+    app.router.add_get("/api/webrtc/offer", handle_offer_info)
     app.router.add_post("/api/cmd", handle_cmd)
     app.router.add_post("/offer", handle_offer)
     app.router.add_post("/api/webrtc/offer", handle_offer)

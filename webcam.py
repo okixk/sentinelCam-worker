@@ -1681,6 +1681,7 @@ def main():
                             f"WebRTC support is not available ({webrtc_import_error}). Install aiohttp, aiortc and av."
                         )
                     print(f"Stream (WebRTC signaling): http://{display_host}:{args.port}/api/webrtc/offer")
+                    print(f"WebRTC test page: http://{display_host}:{args.port}/webrtc-test")
                     print(f"State API: http://{display_host}:{args.port}/api/state")
                     run_webrtc_server(
                         hub,

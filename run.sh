@@ -178,7 +178,7 @@ prompt_for_host_choice() {
   local default_choice="$1"
   local reply=""
   while true; do
-    read -r -p "Stream host waehlen: [1] localhost/127.0.0.1, [2] alle Interfaces/0.0.0.0 [${default_choice}]: " reply || true
+    read -r -p "Stream host wählen: [1] localhost/127.0.0.1, [2] alle Interfaces/0.0.0.0 [${default_choice}]: " reply || true
     reply="${reply:-$default_choice}"
     case "$reply" in
       1|2)

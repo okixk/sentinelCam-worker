@@ -231,7 +231,7 @@ if "%HAS_HOST%"=="0" (
     set "DEFAULT_HOST_CHOICE=1"
   )
   if not "%SILENT%"=="1" (
-    call :prompt_host_choice "%DEFAULT_HOST_CHOICE%"
+    call :prompt_host_choice "!DEFAULT_HOST_CHOICE!"
   )
   set FWD_ARGS=--host "%SELECTED_HOST%" %FWD_ARGS%
 )
