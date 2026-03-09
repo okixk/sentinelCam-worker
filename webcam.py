@@ -23,6 +23,7 @@ import asyncio
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import logging
 import warnings
@@ -34,7 +35,7 @@ from ultralytics import YOLO
 
 # stream_server lives in THIS worker repo.
 # It exposes only the stream + JSON APIs; the actual website lives in sentinelCam-web.
-from stream_server import FrameHub, ControlAPI, run_mjpeg_server
+from stream_server import FrameHub, ControlAPI, SecurityConfig, run_mjpeg_server
 run_webrtc_server = None  # worker-only mode: no WebRTC server here
 
 
@@ -602,6 +603,35 @@ def _parse_cycle_list(s: str) -> List[str]:
     return out
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = (os.environ.get(name, "") or "").strip()
+    if not raw:
+        return int(default)
+    try:
+        return int(raw)
+    except Exception:
+        return int(default)
+
+
+def _parse_allowed_origins(raw: str) -> Tuple[str, ...]:
+    out: List[str] = []
+    seen = set()
+    for item in (raw or "").split(","):
+        origin = item.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            raise SystemExit("WEB_ALLOWED_ORIGINS / --web-allow-origin must list explicit origins, not '*'.")
+        parsed = urlparse(origin)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise SystemExit(f"Invalid web origin: {origin!r}. Use values like http://localhost:3000")
+        normalized = f"{parsed.scheme}://{parsed.netloc}"
+        if normalized not in seen:
+            seen.add(normalized)
+            out.append(normalized)
+    return tuple(out)
+
+
 def main():
     ap = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -741,6 +771,24 @@ def main():
     ap.add_argument("--host", type=str, default="127.0.0.1", help="Web server bind host (when --web)")
     ap.add_argument("--port", type=int, default=8080, help="Web server port (when --web)")
     ap.add_argument(
+        "--web-auth-token",
+        type=str,
+        default=(os.environ.get("WEB_AUTH_TOKEN", "") or "").strip(),
+        help="Optional bearer token for stream/API access. Also read from WEB_AUTH_TOKEN.",
+    )
+    ap.add_argument(
+        "--web-allow-origin",
+        type=str,
+        default=(os.environ.get("WEB_ALLOWED_ORIGINS", "") or "").strip(),
+        help="Comma-separated browser origins allowed via CORS. Also read from WEB_ALLOWED_ORIGINS.",
+    )
+    ap.add_argument(
+        "--web-max-cmd-bytes",
+        type=int,
+        default=_env_int("WEB_MAX_CMD_BYTES", 8192),
+        help="Maximum allowed size of POST /api/cmd bodies in bytes.",
+    )
+    ap.add_argument(
         "--stream",
         type=str,
         default="auto",
@@ -787,11 +835,34 @@ def main():
         print("sentinelCam Web-Startoptionen")
         print("  --web/--no-web --stream webrtc|mjpeg|auto --host HOST --port PORT")
         print("  Default bind host: 127.0.0.1 (localhost only)")
+        print("  Security: --web-auth-token TOKEN --web-allow-origin http://host:port[,http://host2:port]")
         print("  Optional debug: --window (show OpenCV preview + hotkeys)")
         print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --advertise-ip IP --rtc-min-port 50000 --rtc-max-port 60000")
         print("  MJPEG:  --jpeg-quality 10-95")
         print("  Capture: --width W --height H --source N|URL")
         return
+
+    allowed_web_origins = _parse_allowed_origins(args.web_allow_origin)
+    web_auth_token = (args.web_auth_token or "").strip()
+    if args.web_max_cmd_bytes <= 0:
+        raise SystemExit("--web-max-cmd-bytes must be greater than 0.")
+
+    bind_host = (args.host or "").strip().lower()
+    public_bind = bind_host not in ("127.0.0.1", "localhost", "::1", "")
+    if public_bind and not web_auth_token:
+        print(
+            "WARNING: Web stream/API is bound to a non-local interface without --web-auth-token. "
+            "Anyone who can reach the port can watch the stream and send commands."
+        )
+    if public_bind and not allowed_web_origins:
+        print(
+            "Note: Browser CORS is disabled by default. Use a reverse proxy for the HTML server, "
+            "or explicitly allow trusted origins with --web-allow-origin."
+        )
+    if allowed_web_origins and not web_auth_token:
+        print("WARNING: Cross-origin browser access is enabled without --web-auth-token.")
+    if web_auth_token and len(web_auth_token) < 16:
+        print("WARNING: --web-auth-token is short. Use at least 16 random characters.")
 
     # Early dependency check: server/web mode needs the separate sentinelCam-web repo (webstream module)
     if bool(getattr(args, 'web', False)) and FrameHub is None:
@@ -1605,6 +1676,11 @@ def main():
                     port=args.port,
                     control=ControlAPI(get_state=_get_state, command=_send_cmd),
                     stop_event=stop_event,
+                    security=SecurityConfig(
+                        auth_token=web_auth_token,
+                        allowed_origins=allowed_web_origins,
+                        max_cmd_bytes=int(args.web_max_cmd_bytes),
+                    ),
                 )
             except KeyboardInterrupt:
                 pass

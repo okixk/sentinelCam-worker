@@ -132,6 +132,9 @@ echo The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
 echo By default the worker binds only to 127.0.0.1.
 echo If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 echo Change DEFAULT_WEB_HOST in webcam.properties or pass --host 0.0.0.0 for LAN access.
+echo Optional hardening in webcam.properties:
+echo   WEB_AUTH_TOKEN=long-random-secret
+echo   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 echo.
 echo Examples:
 echo   run.bat

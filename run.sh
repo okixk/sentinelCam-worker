@@ -19,6 +19,9 @@ The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
 If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 By default the worker binds only to 127.0.0.1. Change DEFAULT_WEB_HOST in webcam.properties
 or pass --host 0.0.0.0 to expose it on the LAN.
+Optional hardening in webcam.properties:
+  WEB_AUTH_TOKEN=long-random-secret
+  WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 
 Examples:
   ./run.sh
