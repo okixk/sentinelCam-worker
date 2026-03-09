@@ -50,23 +50,30 @@ class FrameHub:
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._jpeg: Optional[bytes] = None
+        self._frame: Optional[np.ndarray] = None
         self._ts: float = 0.0
 
     def update(self, frame_bgr: np.ndarray) -> None:
         if frame_bgr is None:
             return
+        frame_copy = frame_bgr.copy()
         ok, buf = cv2.imencode(".jpg", frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
-        if not ok:
-            return
-        data = buf.tobytes()
+        data = buf.tobytes() if ok else None
         with self._cond:
-            self._jpeg = data
+            self._frame = frame_copy
+            if data is not None:
+                self._jpeg = data
             self._ts = time.time()
             self._cond.notify_all()
 
     def latest(self) -> Tuple[Optional[bytes], float]:
         with self._lock:
             return self._jpeg, self._ts
+
+    def latest_frame(self) -> Tuple[Optional[np.ndarray], float]:
+        with self._lock:
+            frame = None if self._frame is None else self._frame.copy()
+            return frame, self._ts
 
     def wait_newer(self, last_ts: float, timeout: float = 1.0) -> Tuple[Optional[bytes], float]:
         end = time.time() + timeout
@@ -77,6 +84,18 @@ class FrameHub:
                 remaining = end - time.time()
                 if remaining <= 0:
                     return self._jpeg, self._ts
+                self._cond.wait(timeout=remaining)
+
+    def wait_newer_frame(self, last_ts: float, timeout: float = 1.0) -> Tuple[Optional[np.ndarray], float]:
+        end = time.time() + timeout
+        with self._cond:
+            while True:
+                if self._frame is not None and self._ts > last_ts:
+                    return self._frame.copy(), self._ts
+                remaining = end - time.time()
+                if remaining <= 0:
+                    frame = None if self._frame is None else self._frame.copy()
+                    return frame, self._ts
                 self._cond.wait(timeout=remaining)
 
 

@@ -129,6 +129,7 @@ echo   - installs python deps via an inline pip list (NO requirements.txt)
 echo   - starts webcam.py
 echo.
 echo The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
+echo Worker-side WebRTC signaling is available at /api/webrtc/offer when started with --stream webrtc.
 echo By default the worker binds only to 127.0.0.1.
 echo If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 echo Change DEFAULT_WEB_HOST in webcam.properties or pass --host 0.0.0.0 for LAN access.
@@ -142,6 +143,7 @@ echo   run.bat --no-install
 echo   run.bat --no-web
 echo   run.bat --window
 echo   run.bat --host 0.0.0.0 --port 8080
+echo   run.bat --stream webrtc
 exit /b 0
 
 :after_parse
@@ -192,7 +194,7 @@ set "PIP_CACHE_DIR=%SCRIPT_DIR%%PIP_CACHE_DIR_LOCAL%"
 
 if "%DO_INSTALL%"=="1" (
   "%PYTHON_EXE%" -m pip install --upgrade pip wheel setuptools >nul 2>&1
-  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12"
+  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc av
   if errorlevel 1 exit /b 1
 ) else (
   echo Skipping install ^(--no-install^). Assuming venv + deps already exist.

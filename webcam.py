@@ -36,7 +36,12 @@ from ultralytics import YOLO
 # stream_server lives in THIS worker repo.
 # It exposes only the stream + JSON APIs; the actual website lives in sentinelCam-web.
 from stream_server import FrameHub, ControlAPI, SecurityConfig, run_mjpeg_server
-run_webrtc_server = None  # worker-only mode: no WebRTC server here
+webrtc_import_error = None
+try:
+    from webrtc_server import run_webrtc_server
+except Exception as exc:
+    run_webrtc_server = None
+    webrtc_import_error = exc
 
 
 try:
@@ -814,19 +819,19 @@ def main():
         "--advertise-ip",
         type=str,
         default="",
-        help="For WebRTC: advertise / prefer this local IP address in ICE candidates (useful on LAN with multiple adapters).",
+        help="Reserved for advanced WebRTC deployments; currently not used by the worker-side WebRTC server.",
     )
     ap.add_argument(
         "--rtc-min-port",
         type=int,
         default=50000,
-        help="For WebRTC: try to bind ICE/UDP sockets within this local port range (min). Default 50000.",
+        help="Reserved for advanced WebRTC deployments; currently not used by the worker-side WebRTC server.",
     )
     ap.add_argument(
         "--rtc-max-port",
         type=int,
         default=60000,
-        help="For WebRTC: try to bind ICE/UDP sockets within this local port range (max). Default 60000.",
+        help="Reserved for advanced WebRTC deployments; currently not used by the worker-side WebRTC server.",
     )
 
     args = ap.parse_args()
@@ -837,7 +842,8 @@ def main():
         print("  Default bind host: 127.0.0.1 (localhost only)")
         print("  Security: --web-auth-token TOKEN --web-allow-origin http://host:port[,http://host2:port]")
         print("  Optional debug: --window (show OpenCV preview + hotkeys)")
-        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --advertise-ip IP --rtc-min-port 50000 --rtc-max-port 60000")
+        print("  Worker-side WebRTC signaling endpoint: POST /api/webrtc/offer")
+        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1")
         print("  MJPEG:  --jpeg-quality 10-95")
         print("  Capture: --width W --height H --source N|URL")
         return
@@ -864,13 +870,13 @@ def main():
     if web_auth_token and len(web_auth_token) < 16:
         print("WARNING: --web-auth-token is short. Use at least 16 random characters.")
 
-    # Early dependency check: server/web mode needs the separate sentinelCam-web repo (webstream module)
-    if bool(getattr(args, 'web', False)) and FrameHub is None:
+    requested_stream_mode = (args.stream or "auto").strip().lower()
+    if bool(getattr(args, "web", False)) and requested_stream_mode == "webrtc" and run_webrtc_server is None:
         raise SystemExit(
-            "webstream module not available. Install the 'sentinelCam-web' repo/package (provides webstream.py)\n"
-            "Example: python -m pip install git+https://github.com/okixk/sentinelCam-web.git\n"
-            "Or run with --no-web to use window-only mode."
+            f"WebRTC support is not available ({webrtc_import_error}). Install aiohttp, aiortc and av, or run with --stream mjpeg."
         )
+    if bool(getattr(args, "web", False)) and requested_stream_mode == "auto" and run_webrtc_server is None:
+        print("Note: WebRTC dependencies are not installed; --stream auto will fall back to MJPEG.")
 
     presets = build_presets()
     if args.list_presets:
@@ -1086,12 +1092,6 @@ def main():
 
 
     if web_enabled:
-        if FrameHub is None:
-            raise SystemExit(
-                "webstream module not available. Install the 'sentinelCam-web' repo/package (provides webstream.py)\n"
-                "Example: python -m pip install git+https://github.com/okixk/sentinelCam-web.git\n"
-                "Or run with --no-web to use window-only mode."
-            )
         hub = FrameHub(jpeg_quality=args.jpeg_quality)
 
     if window_enabled:
@@ -1665,23 +1665,44 @@ def main():
                 display_host = "localhost"
             elif display_host in ("127.0.0.1", "::1"):
                 display_host = "localhost"
-            mode = (args.stream or "auto").lower().strip()
+            requested_mode = (args.stream or "auto").lower().strip()
+            mode = requested_mode
+            if mode == "auto":
+                mode = "webrtc" if run_webrtc_server is not None else "mjpeg"
+            security = SecurityConfig(
+                auth_token=web_auth_token,
+                allowed_origins=allowed_web_origins,
+                max_cmd_bytes=int(args.web_max_cmd_bytes),
+            )
             try:
                 if mode == "webrtc":
-                    raise SystemExit("--stream webrtc is not supported in worker-only mode. Use MJPEG and let the web repo consume /stream.mjpg.")
-                print(f"Stream (MJPEG): http://{display_host}:{args.port}/stream.mjpg")
-                run_mjpeg_server(
-                    hub,
-                    host=args.host,
-                    port=args.port,
-                    control=ControlAPI(get_state=_get_state, command=_send_cmd),
-                    stop_event=stop_event,
-                    security=SecurityConfig(
-                        auth_token=web_auth_token,
-                        allowed_origins=allowed_web_origins,
-                        max_cmd_bytes=int(args.web_max_cmd_bytes),
-                    ),
-                )
+                    if run_webrtc_server is None:
+                        raise SystemExit(
+                            f"WebRTC support is not available ({webrtc_import_error}). Install aiohttp, aiortc and av."
+                        )
+                    print(f"Stream (WebRTC signaling): http://{display_host}:{args.port}/api/webrtc/offer")
+                    print(f"State API: http://{display_host}:{args.port}/api/state")
+                    run_webrtc_server(
+                        hub,
+                        host=args.host,
+                        port=args.port,
+                        control=ControlAPI(get_state=_get_state, command=_send_cmd),
+                        stop_event=stop_event,
+                        security=security,
+                        codec_preference=args.webrtc_codec,
+                    )
+                else:
+                    if requested_mode == "auto" and run_webrtc_server is None:
+                        print("Stream mode auto -> MJPEG (WebRTC dependencies not available)")
+                    print(f"Stream (MJPEG): http://{display_host}:{args.port}/stream.mjpg")
+                    run_mjpeg_server(
+                        hub,
+                        host=args.host,
+                        port=args.port,
+                        control=ControlAPI(get_state=_get_state, command=_send_cmd),
+                        stop_event=stop_event,
+                        security=security,
+                    )
             except KeyboardInterrupt:
                 pass
             finally:

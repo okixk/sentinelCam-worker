@@ -16,6 +16,7 @@ This script ONLY manages the worker repo:
   - starts webcam.py
 
 The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
+Worker-side WebRTC signaling is available at /api/webrtc/offer when started with --stream webrtc.
 If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 By default the worker binds only to 127.0.0.1. Change DEFAULT_WEB_HOST in webcam.properties
 or pass --host 0.0.0.0 to expose it on the LAN.
@@ -29,6 +30,7 @@ Examples:
   ./run.sh --no-web                 # window-only
   ./run.sh --window                 # also show OpenCV preview window
   ./run.sh --host 0.0.0.0 --port 8080
+  ./run.sh --stream webrtc
 HELP
   exit 0
 fi
@@ -222,7 +224,7 @@ ensure_venv() {
 
 install_pip_deps() {
   python -m pip install --upgrade pip wheel setuptools >/dev/null
-  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12"
+  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc av
 }
 
 SILENT=0
