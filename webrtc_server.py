@@ -266,9 +266,37 @@ def _request_origin(request: web.Request) -> str:
     return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 
 
-def _origin_allowed(origin: str, security: SecurityConfig) -> bool:
+def _same_origin(request: web.Request, origin: str) -> bool:
     if not origin:
         return False
+    host = (request.headers.get("Host", "") or request.host or "").strip()
+    if not host:
+        return False
+    forwarded_proto = (request.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower()
+    schemes = [forwarded_proto] if forwarded_proto in ("http", "https") else [request.scheme or "http"]
+    for scheme in schemes:
+        if origin == f"{scheme}://{host}":
+            return True
+    return False
+
+
+def _local_origin_allowed(origin: str, loopback_bind: bool) -> bool:
+    if not loopback_bind:
+        return False
+    if origin == "null":
+        return True
+    parsed = urlparse(origin)
+    host = (parsed.hostname or "").strip().lower()
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+def _origin_allowed(request: web.Request, origin: str, security: SecurityConfig, loopback_bind: bool) -> bool:
+    if not origin:
+        return False
+    if _same_origin(request, origin):
+        return True
+    if _local_origin_allowed(origin, loopback_bind):
+        return True
     return origin in security.allowed_origins
 
 
@@ -278,9 +306,14 @@ def _apply_common_headers(response: web.StreamResponse) -> None:
     response.headers["X-Frame-Options"] = "DENY"
 
 
-def _apply_cors_headers(response: web.StreamResponse, request: web.Request, security: SecurityConfig) -> bool:
+def _apply_cors_headers(
+    response: web.StreamResponse,
+    request: web.Request,
+    security: SecurityConfig,
+    loopback_bind: bool,
+) -> bool:
     origin = _request_origin(request)
-    if not _origin_allowed(origin, security):
+    if not _origin_allowed(request, origin, security, loopback_bind):
         return False
     response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Vary"] = "Origin"
@@ -293,6 +326,7 @@ def _apply_cors_headers(response: web.StreamResponse, request: web.Request, secu
 def _json_response(
     request: web.Request,
     security: SecurityConfig,
+    loopback_bind: bool,
     payload: Dict[str, Any],
     *,
     status: int = 200,
@@ -301,13 +335,14 @@ def _json_response(
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     _apply_common_headers(response)
-    _apply_cors_headers(response, request, security)
+    _apply_cors_headers(response, request, security, loopback_bind)
     return response
 
 
 def _plain_response(
     request: web.Request,
     security: SecurityConfig,
+    loopback_bind: bool,
     text: str,
     *,
     status: int,
@@ -316,7 +351,7 @@ def _plain_response(
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     _apply_common_headers(response)
-    _apply_cors_headers(response, request, security)
+    _apply_cors_headers(response, request, security, loopback_bind)
     return response
 
 
@@ -341,14 +376,21 @@ def _is_authenticated(request: web.Request, security: SecurityConfig) -> bool:
 def _check_origin_and_auth(
     request: web.Request,
     security: SecurityConfig,
+    loopback_bind: bool,
     *,
     require_auth: bool = True,
 ) -> Optional[web.Response]:
     origin = _request_origin(request)
-    if origin and not _origin_allowed(origin, security):
-        return _json_response(request, security, {"ok": False, "error": "origin not allowed"}, status=403)
+    if origin and not _origin_allowed(request, origin, security, loopback_bind):
+        return _json_response(request, security, loopback_bind, {"ok": False, "error": "origin not allowed"}, status=403)
     if require_auth and not _is_authenticated(request, security):
-        response = _json_response(request, security, {"ok": False, "error": "authentication required"}, status=401)
+        response = _json_response(
+            request,
+            security,
+            loopback_bind,
+            {"ok": False, "error": "authentication required"},
+            status=401,
+        )
         response.headers["WWW-Authenticate"] = 'Bearer realm="sentinelCam-worker"'
         return response
     return None
@@ -418,6 +460,23 @@ def _apply_codec_preference(transceiver: Any, preference: str) -> None:
     transceiver.setCodecPreferences(preferred + others)
 
 
+async def _apply_target_bitrate(sender: Any, target_bitrate_bps: int) -> None:
+    if int(target_bitrate_bps) <= 0:
+        return
+
+    # aiortc currently applies encoder bitrate through the encoder instance
+    # rather than a public sender parameter API.
+    for _ in range(60):
+        encoder = getattr(sender, "_RTCRtpSender__encoder", None)
+        if encoder is not None and hasattr(encoder, "target_bitrate"):
+            try:
+                encoder.target_bitrate = int(target_bitrate_bps)
+            except Exception:
+                pass
+            return
+        await asyncio.sleep(0.05)
+
+
 async def _run_webrtc_server(
     hub: FrameHub,
     host: str,
@@ -426,37 +485,47 @@ async def _run_webrtc_server(
     stop_event: Optional[Any],
     security: SecurityConfig,
     codec_preference: str,
+    target_bitrate_kbps: int,
 ) -> None:
     pcs: Set[RTCPeerConnection] = set()
+    boundary = "frame"
+    bind_host = (host or "").strip().lower()
+    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1")
 
     async def handle_options(request: web.Request) -> web.Response:
         if request.path not in (
             "/offer",
             "/api/webrtc/offer",
+            "/stream.mjpg",
+            "/mjpeg",
+            "/video",
+            "/video_feed",
+            "/frame.jpg",
+            "/snapshot.jpg",
             "/api/state",
             "/api/cmd",
             "/health",
             "/api/health",
         ):
-            return _plain_response(request, security, "Not Found\n", status=404)
+            return _plain_response(request, security, loopback_bind, "Not Found\n", status=404)
         origin = _request_origin(request)
-        if not _origin_allowed(origin, security):
-            return _json_response(request, security, {"ok": False, "error": "origin not allowed"}, status=403)
+        if not _origin_allowed(request, origin, security, loopback_bind):
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "origin not allowed"}, status=403)
         response = web.Response(status=204)
         _apply_common_headers(response)
-        _apply_cors_headers(response, request, security)
+        _apply_cors_headers(response, request, security, loopback_bind)
         return response
 
     async def handle_health(request: web.Request) -> web.Response:
         error = None
         if not security.allow_unauthenticated_health:
-            error = _check_origin_and_auth(request, security, require_auth=True)
+            error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
             return error
-        return _json_response(request, security, {"ok": True})
+        return _json_response(request, security, loopback_bind, {"ok": True})
 
     async def handle_state(request: web.Request) -> web.Response:
-        error = _check_origin_and_auth(request, security, require_auth=True)
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
             return error
         state: Dict[str, Any] = {}
@@ -465,23 +534,27 @@ async def _run_webrtc_server(
                 state = control.get_state()
             except Exception:
                 state = {}
-        return _json_response(request, security, state)
+        state = dict(state or {})
+        state["webrtc_available"] = True
+        state["mjpeg_available"] = True
+        state["stream_backend"] = "webrtc"
+        return _json_response(request, security, loopback_bind, state)
 
     async def handle_cmd(request: web.Request) -> web.Response:
-        error = _check_origin_and_auth(request, security, require_auth=True)
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
             return error
 
         if request.content_length is not None and request.content_length > int(security.max_cmd_bytes):
-            return _json_response(request, security, {"ok": False, "error": "request body too large"}, status=413)
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "request body too large"}, status=413)
 
         try:
             raw = await request.read()
         except Exception:
-            return _json_response(request, security, {"ok": False, "error": "could not read request body"}, status=400)
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "could not read request body"}, status=400)
 
         if len(raw) > int(security.max_cmd_bytes):
-            return _json_response(request, security, {"ok": False, "error": "request body too large"}, status=413)
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "request body too large"}, status=413)
 
         content_type = (request.content_type or "").strip().lower()
         try:
@@ -490,7 +563,7 @@ async def _run_webrtc_server(
             else:
                 payload = {"cmd": raw.decode("utf-8", "ignore")}
         except Exception:
-            return _json_response(request, security, {"ok": False, "error": "invalid request body"}, status=400)
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "invalid request body"}, status=400)
 
         if control is not None:
             try:
@@ -498,25 +571,25 @@ async def _run_webrtc_server(
             except Exception:
                 pass
 
-        return _json_response(request, security, {"ok": True})
+        return _json_response(request, security, loopback_bind, {"ok": True})
 
     async def handle_offer(request: web.Request) -> web.Response:
-        error = _check_origin_and_auth(request, security, require_auth=True)
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
             return error
 
         if request.content_length is not None and request.content_length > int(security.max_cmd_bytes):
-            return _json_response(request, security, {"ok": False, "error": "request body too large"}, status=413)
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "request body too large"}, status=413)
 
         try:
             params = await request.json()
         except Exception:
-            return _json_response(request, security, {"ok": False, "error": "invalid WebRTC offer"}, status=400)
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "invalid WebRTC offer"}, status=400)
 
         sdp = str(params.get("sdp", "") or "")
         offer_type = str(params.get("type", "") or "")
         if not sdp or offer_type != "offer":
-            return _json_response(request, security, {"ok": False, "error": "missing offer.sdp/type"}, status=400)
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "missing offer.sdp/type"}, status=400)
 
         pc = RTCPeerConnection()
         pcs.add(pc)
@@ -535,6 +608,8 @@ async def _run_webrtc_server(
             await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=offer_type))
             answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
+            if int(target_bitrate_kbps) > 0:
+                asyncio.create_task(_apply_target_bitrate(transceiver.sender, int(target_bitrate_kbps) * 1000))
         except Exception as exc:
             pcs.discard(pc)
             try:
@@ -544,6 +619,7 @@ async def _run_webrtc_server(
             return _json_response(
                 request,
                 security,
+                loopback_bind,
                 {"ok": False, "error": f"WebRTC negotiation failed: {type(exc).__name__}: {exc}"},
                 status=400,
             )
@@ -551,16 +627,18 @@ async def _run_webrtc_server(
         return _json_response(
             request,
             security,
+            loopback_bind,
             {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type},
         )
 
     async def handle_offer_info(request: web.Request) -> web.Response:
-        error = _check_origin_and_auth(request, security, require_auth=False)
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=False)
         if error is not None:
             return error
         return _json_response(
             request,
             security,
+            loopback_bind,
             {
                 "ok": True,
                 "endpoint": "/api/webrtc/offer",
@@ -569,15 +647,72 @@ async def _run_webrtc_server(
             },
         )
 
+    async def handle_frame(request: web.Request) -> web.Response:
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
+        if error is not None:
+            return error
+
+        jpeg, _ = await asyncio.to_thread(hub.latest)
+        if not jpeg:
+            return _plain_response(request, security, loopback_bind, "No frame yet\n", status=503)
+
+        response = web.Response(body=jpeg, content_type="image/jpeg")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        _apply_common_headers(response)
+        _apply_cors_headers(response, request, security, loopback_bind)
+        return response
+
+    async def handle_mjpeg_stream(request: web.Request) -> web.StreamResponse:
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
+        if error is not None:
+            return error
+
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                "Content-Type": f"multipart/x-mixed-replace; boundary={boundary}",
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+        _apply_common_headers(response)
+        _apply_cors_headers(response, request, security, loopback_bind)
+        await response.prepare(request)
+
+        last_ts = 0.0
+        try:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                jpeg, last_ts = await asyncio.to_thread(hub.wait_newer, last_ts, 1.0)
+                if not jpeg:
+                    continue
+                await response.write(f"--{boundary}\r\n".encode("utf-8"))
+                await response.write(b"Content-Type: image/jpeg\r\n")
+                await response.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode("utf-8"))
+                await response.write(jpeg)
+                await response.write(b"\r\n")
+        except (asyncio.CancelledError, ConnectionResetError, RuntimeError):
+            pass
+        finally:
+            try:
+                await response.write_eof()
+            except Exception:
+                pass
+
+        return response
+
     async def handle_test_page(request: web.Request) -> web.Response:
-        error = _check_origin_and_auth(request, security, require_auth=False)
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=False)
         if error is not None:
             return error
         response = web.Response(text=TEST_PAGE_HTML, content_type="text/html", charset="utf-8")
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         _apply_common_headers(response)
-        _apply_cors_headers(response, request, security)
+        _apply_cors_headers(response, request, security, loopback_bind)
         return response
 
     app = web.Application()
@@ -586,6 +721,12 @@ async def _run_webrtc_server(
     app.router.add_get("/webrtc-test", handle_test_page)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/api/health", handle_health)
+    app.router.add_get("/stream.mjpg", handle_mjpeg_stream)
+    app.router.add_get("/mjpeg", handle_mjpeg_stream)
+    app.router.add_get("/video", handle_mjpeg_stream)
+    app.router.add_get("/video_feed", handle_mjpeg_stream)
+    app.router.add_get("/frame.jpg", handle_frame)
+    app.router.add_get("/snapshot.jpg", handle_frame)
     app.router.add_get("/api/state", handle_state)
     app.router.add_get("/offer", handle_offer_info)
     app.router.add_get("/api/webrtc/offer", handle_offer_info)
@@ -619,6 +760,7 @@ def run_webrtc_server(
     stop_event: Optional[Any] = None,
     security: Optional[SecurityConfig] = None,
     codec_preference: str = "auto",
+    target_bitrate_kbps: int = 2500,
 ) -> None:
     security = security or SecurityConfig()
     asyncio.run(
@@ -630,5 +772,6 @@ def run_webrtc_server(
             stop_event=stop_event,
             security=security,
             codec_preference=codec_preference,
+            target_bitrate_kbps=int(target_bitrate_kbps),
         )
     )

@@ -45,7 +45,7 @@ class SecurityConfig:
 class FrameHub:
     """Holds the latest encoded JPEG. Producer calls update(frame_bgr)."""
 
-    def __init__(self, jpeg_quality: int = 80):
+    def __init__(self, jpeg_quality: int = 88):
         self.jpeg_quality = int(max(10, min(95, jpeg_quality)))
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
@@ -109,6 +109,8 @@ def run_mjpeg_server(
 ) -> None:
     boundary = "frame"
     security = security or SecurityConfig()
+    bind_host = (host or "").strip().lower()
+    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "sentinelCam-worker"
@@ -136,9 +138,35 @@ def run_mjpeg_server(
                 return ""
             return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 
+        def _same_origin(self, origin: str) -> bool:
+            if not origin:
+                return False
+            host = (self.headers.get("Host", "") or "").strip()
+            if not host:
+                return False
+            forwarded_proto = (self.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower()
+            schemes = [forwarded_proto] if forwarded_proto in ("http", "https") else ["http"]
+            for scheme in schemes:
+                if origin == f"{scheme}://{host}":
+                    return True
+            return False
+
+        def _local_origin_allowed(self, origin: str) -> bool:
+            if not loopback_bind:
+                return False
+            if origin == "null":
+                return True
+            parsed = urlparse(origin)
+            host = (parsed.hostname or "").strip().lower()
+            return host in ("127.0.0.1", "localhost", "::1")
+
         def _origin_allowed(self, origin: str) -> bool:
             if not origin:
                 return False
+            if self._same_origin(origin):
+                return True
+            if self._local_origin_allowed(origin):
+                return True
             return origin in security.allowed_origins
 
         def _add_cors_headers(self) -> bool:
@@ -333,6 +361,10 @@ def run_mjpeg_server(
                     st = control.get_state()
                 except Exception:
                     st = {}
+            st = dict(st or {})
+            st["webrtc_available"] = False
+            st["mjpeg_available"] = True
+            st["stream_backend"] = "mjpeg"
             self.send_response(200)
             self._add_cors_headers()
             self.send_header("Content-Type", "application/json")

@@ -15,14 +15,19 @@ This script ONLY manages the worker repo:
   - installs python deps via an inline pip list (NO requirements.txt)
   - starts webcam.py
 
-The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
-Worker-side WebRTC signaling is available at /api/webrtc/offer when started with --stream webrtc.
+The web repo prefers WebRTC at /api/webrtc/offer and falls back to http://WORKER_IP:8080/stream.mjpg.
+Default stream mode is auto. Use --stream mjpeg to force MJPEG-only mode.
 If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 By default the worker binds only to 127.0.0.1. Change DEFAULT_WEB_HOST in webcam.properties
 or pass --host 0.0.0.0 to expose it on the LAN.
 Optional hardening in webcam.properties:
   WEB_AUTH_TOKEN=long-random-secret
   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
+Stream quality defaults in webcam.properties:
+  DEFAULT_STREAM_MODE=auto
+  DEFAULT_WEBRTC_BITRATE_KBPS=2500
+  DEFAULT_STREAM_QUALITY=high
+  DEFAULT_JPEG_QUALITY=88
 
 Examples:
   ./run.sh
@@ -31,6 +36,8 @@ Examples:
   ./run.sh --window                 # also show OpenCV preview window
   ./run.sh --host 0.0.0.0 --port 8080
   ./run.sh --stream webrtc
+  ./run.sh --webrtc-bitrate 2500
+  ./run.sh --stream-quality ultra
 HELP
   exit 0
 fi
@@ -178,7 +185,7 @@ prompt_for_host_choice() {
   local default_choice="$1"
   local reply=""
   while true; do
-    read -r -p "Stream host wählen: [1] localhost/127.0.0.1, [2] alle Interfaces/0.0.0.0 [${default_choice}]: " reply || true
+    read -r -p "Select stream host: [1] localhost/127.0.0.1, [2] all interfaces/0.0.0.0 [${default_choice}]: " reply || true
     reply="${reply:-$default_choice}"
     case "$reply" in
       1|2)
@@ -186,7 +193,7 @@ prompt_for_host_choice() {
         return 0
         ;;
     esac
-    warn "Bitte nur 1 oder 2 eingeben."
+    warn "Please enter only 1 or 2."
   done
 }
 

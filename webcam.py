@@ -19,7 +19,6 @@ import time
 import shutil
 import threading
 import queue
-import asyncio
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Tuple
@@ -637,6 +636,55 @@ def _parse_allowed_origins(raw: str) -> Tuple[str, ...]:
     return tuple(out)
 
 
+def _has_cli_opt(argv: List[str], name: str) -> bool:
+    for item in argv:
+        if item == name or item.startswith(name + "="):
+            return True
+    return False
+
+
+STREAM_QUALITY_PRESETS: Dict[str, Dict[str, int]] = {
+    "low": {"width": 640, "height": 360, "jpeg_quality": 75},
+    "medium": {"width": 960, "height": 540, "jpeg_quality": 82},
+    "high": {"width": 1280, "height": 720, "jpeg_quality": 88},
+    "ultra": {"width": 1920, "height": 1080, "jpeg_quality": 92},
+}
+
+
+def _resolve_stream_quality_name(raw: str) -> str:
+    name = (raw or "high").strip().lower()
+    if name in ("", "auto"):
+        return "high"
+    if name not in STREAM_QUALITY_PRESETS:
+        valid = ", ".join(["auto"] + sorted(STREAM_QUALITY_PRESETS.keys()))
+        raise SystemExit(f"Invalid --stream-quality {raw!r}. Valid: {valid}")
+    return name
+
+
+def _apply_stream_quality_profile(args: argparse.Namespace, argv: List[str]) -> str:
+    profile_name = _resolve_stream_quality_name(getattr(args, "stream_quality", "high"))
+    profile = STREAM_QUALITY_PRESETS[profile_name]
+
+    width_explicit = _has_cli_opt(argv, "--width")
+    height_explicit = _has_cli_opt(argv, "--height")
+    base_w = int(profile["width"])
+    base_h = int(profile["height"])
+
+    if not width_explicit and not height_explicit:
+        args.width = base_w
+        args.height = base_h
+    elif width_explicit and not height_explicit and int(args.width) > 0:
+        args.height = max(1, int(round(int(args.width) * base_h / float(base_w))))
+    elif height_explicit and not width_explicit and int(args.height) > 0:
+        args.width = max(1, int(round(int(args.height) * base_w / float(base_h))))
+
+    if not _has_cli_opt(argv, "--jpeg-quality"):
+        args.jpeg_quality = int(profile["jpeg_quality"])
+
+    args.stream_quality = profile_name
+    return profile_name
+
+
 def main():
     ap = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -796,14 +844,21 @@ def main():
     ap.add_argument(
         "--stream",
         type=str,
-        default="auto",
+        default=(os.environ.get("DEFAULT_STREAM_MODE", "auto") or "auto").strip().lower(),
         choices=["auto", "mjpeg", "webrtc"],
-        help="Streaming mode for --web. auto=WebRTC if available else MJPEG.",
+        help="Streaming mode for --web. Default is DEFAULT_STREAM_MODE or auto. auto=WebRTC with MJPEG fallback if available, else MJPEG.",
+    )
+    ap.add_argument(
+        "--stream-quality",
+        type=str,
+        default=(os.environ.get("DEFAULT_STREAM_QUALITY", "high") or "high").strip().lower(),
+        choices=["auto", "low", "medium", "high", "ultra"],
+        help="Capture + MJPEG quality preset. Affects default --width/--height and --jpeg-quality unless you override them explicitly.",
     )
     ap.add_argument(
         "--jpeg-quality",
         type=int,
-        default=80,
+        default=_env_int("DEFAULT_JPEG_QUALITY", 88),
         help="MJPEG JPEG quality (10-95). Lower => less bandwidth, slightly more artifacts.",
     )
     ap.add_argument(
@@ -813,40 +868,40 @@ def main():
         choices=["auto", "h264", "vp8", "vp9", "av1"],
         help="Best-effort codec preference for WebRTC (when --stream webrtc).",
     )
-
-
     ap.add_argument(
-        "--advertise-ip",
-        type=str,
-        default="",
-        help="Reserved for advanced WebRTC deployments; currently not used by the worker-side WebRTC server.",
-    )
-    ap.add_argument(
-        "--rtc-min-port",
+        "--webrtc-bitrate",
         type=int,
-        default=50000,
-        help="Reserved for advanced WebRTC deployments; currently not used by the worker-side WebRTC server.",
-    )
-    ap.add_argument(
-        "--rtc-max-port",
-        type=int,
-        default=60000,
-        help="Reserved for advanced WebRTC deployments; currently not used by the worker-side WebRTC server.",
+        default=_env_int("DEFAULT_WEBRTC_BITRATE_KBPS", 2500),
+        help="Target WebRTC video bitrate in kbps (0 = aiortc default bitrate control).",
     )
 
+
+    raw_argv = sys.argv[1:]
     args = ap.parse_args()
+    stream_quality_name = _apply_stream_quality_profile(args, raw_argv)
 
     if args.help_web:
-        print("sentinelCam Web-Startoptionen")
+        print("sentinelCam web options")
         print("  --web/--no-web --stream webrtc|mjpeg|auto --host HOST --port PORT")
         print("  Default bind host: 127.0.0.1 (localhost only)")
+        print("  Default stream mode: auto (WebRTC preferred, MJPEG fallback)")
+        print("  Default stream quality: high (1280x720, JPEG 88) unless overridden")
         print("  Security: --web-auth-token TOKEN --web-allow-origin http://host:port[,http://host2:port]")
         print("  Optional debug: --window (show OpenCV preview + hotkeys)")
         print("  Worker-side WebRTC signaling endpoint: POST /api/webrtc/offer")
-        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1")
+        print("  MJPEG fallback endpoint: GET /stream.mjpg")
+        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --webrtc-bitrate KBPS")
+        print("  Stream quality: --stream-quality auto|low|medium|high|ultra")
         print("  MJPEG:  --jpeg-quality 10-95")
         print("  Capture: --width W --height H --source N|URL")
         return
+
+    if args.width <= 0 or args.height <= 0:
+        raise SystemExit("--width and --height must be greater than 0.")
+    if not (10 <= int(args.jpeg_quality) <= 95):
+        raise SystemExit("--jpeg-quality must be between 10 and 95.")
+    if int(args.webrtc_bitrate) < 0:
+        raise SystemExit("--webrtc-bitrate must be >= 0.")
 
     allowed_web_origins = _parse_allowed_origins(args.web_allow_origin)
     web_auth_token = (args.web_auth_token or "").strip()
@@ -1058,6 +1113,92 @@ def main():
         with state_lock:
             return dict(web_state)
 
+    def _normalize_web_cmd_name(raw_cmd: object) -> str:
+        cmd = str(raw_cmd or "").strip().lower()
+        if not cmd:
+            return ""
+        cmd = re.sub(r"[\s\-]+", "_", cmd)
+        cmd = re.sub(r"_+", "_", cmd).strip("_")
+
+        aliases = {
+            "next_model": "next",
+            "model_next": "next",
+            "cycle_next": "next",
+            "nextmodel": "next",
+            "prev_model": "prev",
+            "previous_model": "prev",
+            "model_prev": "prev",
+            "model_previous": "prev",
+            "cycle_prev": "prev",
+            "prevmodel": "prev",
+            "previousmodel": "prev",
+            "pose_toggle": "toggle_pose",
+            "togglepose": "toggle_pose",
+            "overlay_toggle": "toggle_overlay",
+            "toggleoverlay": "toggle_overlay",
+            "inference_toggle": "toggle_inference",
+            "toggleinference": "toggle_inference",
+            "model_toggle": "toggle_inference",
+            "togglemodel": "toggle_inference",
+        }
+        return aliases.get(cmd, cmd)
+
+    def _extract_web_cmd_and_seq(payload) -> Tuple[str, int]:
+        cmd = ""
+        seq = 0
+        try:
+            if isinstance(payload, dict):
+                for seq_key in ("seq", "request_id", "id"):
+                    if seq_key in payload:
+                        try:
+                            seq = int(payload.get(seq_key) or 0)
+                            break
+                        except Exception:
+                            pass
+
+                for cmd_key in ("cmd", "command", "action", "event", "name", "type"):
+                    value = payload.get(cmd_key)
+                    if value not in (None, ""):
+                        cmd = str(value).strip().lower()
+                        break
+
+                if not cmd:
+                    bool_fields = (
+                        ("pose_enabled", "pose_on", "pose_off"),
+                        ("pose", "pose_on", "pose_off"),
+                        ("overlay_enabled", "overlay_on", "overlay_off"),
+                        ("overlay", "overlay_on", "overlay_off"),
+                        ("inference_enabled", "inference_on", "inference_off"),
+                        ("inference", "inference_on", "inference_off"),
+                    )
+                    for field, on_cmd, off_cmd in bool_fields:
+                        if field in payload and isinstance(payload.get(field), bool):
+                            cmd = on_cmd if payload.get(field) else off_cmd
+                            break
+
+                if not cmd:
+                    for key, value in payload.items():
+                        if isinstance(value, bool) and value:
+                            cmd = str(key).strip().lower()
+                            break
+
+                if cmd and isinstance(payload.get("value"), bool):
+                    value = bool(payload.get("value"))
+                    normalized = _normalize_web_cmd_name(cmd)
+                    if normalized in ("pose", "toggle_pose"):
+                        cmd = "pose_on" if value else "pose_off"
+                    elif normalized in ("overlay", "toggle_overlay"):
+                        cmd = "overlay_on" if value else "overlay_off"
+                    elif normalized in ("inference", "toggle_inference", "model"):
+                        cmd = "inference_on" if value else "inference_off"
+            else:
+                cmd = str(payload).strip().lower()
+        except Exception:
+            cmd = str(payload).strip().lower()
+            seq = 0
+
+        return _normalize_web_cmd_name(cmd), seq
+
     def _send_cmd(payload) -> None:
         """Accept commands from web server.
 
@@ -1065,17 +1206,7 @@ def main():
         seq is used by the web UI to confirm that a command was actually applied.
         """
         nonlocal cmd_seq_counter
-        cmd = ""
-        seq = 0
-        try:
-            if isinstance(payload, dict):
-                cmd = str(payload.get("cmd", "")).strip().lower()
-                seq = int(payload.get("seq", 0) or 0)
-            else:
-                cmd = str(payload).strip().lower()
-        except Exception:
-            cmd = str(payload).strip().lower()
-            seq = 0
+        cmd, seq = _extract_web_cmd_and_seq(payload)
 
         if not cmd:
             return
@@ -1121,11 +1252,8 @@ def main():
         pose_weights = new_pose_weights
         names = det_model.names
 
-        # Reset tracking state so IDs don't carry over confusingly
-        tracks.clear()
-        sit_status.clear()
-        face_point.clear()
-        pose_cache.clear()
+        # Reset tracking state so IDs do not carry over across model switches.
+        _clear_runtime_tracking()
 
         _update_state(
             preset=active_preset_name,
@@ -1174,6 +1302,48 @@ def main():
         _set_pose(not pose_enabled)
 
 
+    def _clear_runtime_tracking() -> None:
+        tracks.clear()
+        sit_status.clear()
+        face_point.clear()
+        pose_cache.clear()
+
+
+    def _set_overlay(enable: bool) -> None:
+        nonlocal overlay_enabled, _saved_overlay_enabled
+        _saved_overlay_enabled = bool(enable)
+        overlay_enabled = bool(enable) if inference_enabled else False
+        _update_state(overlay_enabled=overlay_enabled)
+        print(f"Overlay -> {'on' if overlay_enabled else 'off'}")
+
+
+    def _set_inference(enable: bool) -> None:
+        nonlocal pose_enabled, overlay_enabled, inference_enabled
+        nonlocal _saved_pose_enabled, _saved_overlay_enabled
+        want = bool(enable)
+        if want == inference_enabled:
+            return
+
+        if want:
+            inference_enabled = True
+            overlay_enabled = bool(_saved_overlay_enabled)
+            _update_state(inference_enabled=True, overlay_enabled=overlay_enabled)
+            print("Inference -> on")
+            if _saved_pose_enabled and not pose_enabled:
+                _set_pose(True)
+            return
+
+        _saved_pose_enabled = pose_enabled
+        _saved_overlay_enabled = overlay_enabled
+        inference_enabled = False
+        overlay_enabled = False
+        if pose_enabled:
+            _set_pose(False)
+        _clear_runtime_tracking()
+        _update_state(inference_enabled=False, overlay_enabled=False, pose_enabled=pose_enabled)
+        print("Inference -> off (stream-only)")
+
+
 
     def processing_loop():
         nonlocal frame_count, last_fps_time, fps_smooth
@@ -1197,15 +1367,14 @@ def main():
                     try:
                         if isinstance(item, (tuple, list)) and len(item) >= 2:
                             seq = int(item[0] or 0)
-                            cmd = str(item[1]).strip().lower()
+                            cmd = _normalize_web_cmd_name(item[1])
                         elif isinstance(item, dict):
-                            cmd = str(item.get("cmd", "")).strip().lower()
-                            seq = int(item.get("seq", 0) or 0)
+                            cmd, seq = _extract_web_cmd_and_seq(item)
                         else:
-                            cmd = str(item).strip().lower()
+                            cmd = _normalize_web_cmd_name(item)
                             seq = 0
                     except Exception:
-                        cmd = str(item).strip().lower()
+                        cmd = _normalize_web_cmd_name(item)
                         seq = 0
 
                     if not cmd:
@@ -1219,7 +1388,7 @@ def main():
 
                     elif cmd in ("next", "m") and len(filtered_cycle) > 1:
                         try:
-                            _update_state(busy=True, busy_text="Switching to next model…", last_error=None, worker_alive=True)
+                            _update_state(busy=True, busy_text="Switching to next model...", last_error=None, worker_alive=True)
                             _switch_to(cycle_idx + 1)
                             applied = True
                         except (Exception, SystemExit) as e:
@@ -1234,7 +1403,7 @@ def main():
 
                     elif cmd in ("prev", "previous", "n") and len(filtered_cycle) > 1:
                         try:
-                            _update_state(busy=True, busy_text="Switching to previous model…", last_error=None, worker_alive=True)
+                            _update_state(busy=True, busy_text="Switching to previous model...", last_error=None, worker_alive=True)
                             _switch_to(cycle_idx - 1)
                             applied = True
                         except (Exception, SystemExit) as e:
@@ -1248,45 +1417,51 @@ def main():
                             print(f"Model switch failed (prev): {e}")
 
                     elif cmd in ("toggle_pose", "pose", "p"):
-                        # Pose nur sinnvoll, wenn Inference an ist
+                        # Pose changes only make sense while inference is enabled.
                         if inference_enabled:
                             _toggle_pose()
+                        else:
+                            _saved_pose_enabled = not pose_enabled
+                        applied = True
+
+                    elif cmd == "pose_on":
+                        if inference_enabled:
+                            _set_pose(True)
+                        else:
+                            _saved_pose_enabled = True
+                        applied = True
+
+                    elif cmd == "pose_off":
+                        _saved_pose_enabled = False
+                        if pose_enabled:
+                            _set_pose(False)
                         applied = True
 
                     elif cmd in ("toggle_overlay", "overlay", "o"):
-                        # Overlay nur sinnvoll, wenn Inference an ist
                         if inference_enabled:
-                            overlay_enabled = not overlay_enabled
-                            _saved_overlay_enabled = overlay_enabled
+                            _set_overlay(not overlay_enabled)
                         else:
-                            overlay_enabled = False
-                        _update_state(overlay_enabled=overlay_enabled)
-                        print(f"Overlay -> {'on' if overlay_enabled else 'off'}")
+                            _set_overlay(False)
+                        applied = True
+
+                    elif cmd == "overlay_on":
+                        _set_overlay(True)
+                        applied = True
+
+                    elif cmd == "overlay_off":
+                        _set_overlay(False)
                         applied = True
 
                     elif cmd in ("toggle_inference", "inference", "model", "i"):
-                        if inference_enabled:
-                            # Stream-only: keine Inference, keine Overlays
-                            _saved_pose_enabled = pose_enabled
-                            _saved_overlay_enabled = overlay_enabled
-                            inference_enabled = False
-                            overlay_enabled = False
-                            if pose_enabled:
-                                _set_pose(False)
-                            tracks.clear()
-                            sit_status.clear()
-                            face_point.clear()
-                            pose_cache.clear()
-                            _update_state(inference_enabled=False, overlay_enabled=False, pose_enabled=pose_enabled)
-                            print("Inference -> off (stream-only)")
-                        else:
-                            inference_enabled = True
-                            overlay_enabled = bool(_saved_overlay_enabled)
-                            _update_state(inference_enabled=True, overlay_enabled=overlay_enabled)
-                            print("Inference -> on")
-                            # Pose ggf. wieder herstellen (wenn vorher an)
-                            if _saved_pose_enabled and not pose_enabled:
-                                _set_pose(True)
+                        _set_inference(not inference_enabled)
+                        applied = True
+
+                    elif cmd == "inference_on":
+                        _set_inference(True)
+                        applied = True
+
+                    elif cmd == "inference_off":
+                        _set_inference(False)
                         applied = True
 
                     if applied:
@@ -1313,7 +1488,7 @@ def main():
                     _update_state(
                         busy=False,
                         busy_text=None,
-                        last_error="Camera read failed; retrying…",
+                        last_error="Camera read failed; retrying...",
                         last_error_ts=time.time(),
                         worker_alive=True,
                     )
@@ -1613,26 +1788,9 @@ def main():
                         _toggle_pose()
                     if k == ord("o"):
                         if inference_enabled:
-                            overlay_enabled = not overlay_enabled
-                            _saved_overlay_enabled = overlay_enabled
-                            _update_state(overlay_enabled=overlay_enabled)
+                            _set_overlay(not overlay_enabled)
                     if k == ord("i"):
-                        # toggle inference
-                        if inference_enabled:
-                            _saved_pose_enabled = pose_enabled
-                            _saved_overlay_enabled = overlay_enabled
-                            inference_enabled = False
-                            overlay_enabled = False
-                            if pose_enabled:
-                                _set_pose(False)
-                            tracks.clear(); sit_status.clear(); face_point.clear(); pose_cache.clear()
-                            _update_state(inference_enabled=False, overlay_enabled=False, pose_enabled=pose_enabled)
-                        else:
-                            inference_enabled = True
-                            overlay_enabled = bool(_saved_overlay_enabled)
-                            _update_state(inference_enabled=True, overlay_enabled=overlay_enabled)
-                            if _saved_pose_enabled and not pose_enabled:
-                                _set_pose(True)
+                        _set_inference(not inference_enabled)
         except (Exception, SystemExit) as e:
             _update_state(
                 busy=False,
@@ -1675,14 +1833,23 @@ def main():
                 max_cmd_bytes=int(args.web_max_cmd_bytes),
             )
             try:
+                print(
+                    f"Stream quality: {stream_quality_name}  capture={int(args.width)}x{int(args.height)}  "
+                    f"jpeg={int(args.jpeg_quality)}"
+                )
                 if mode == "webrtc":
                     if run_webrtc_server is None:
                         raise SystemExit(
                             f"WebRTC support is not available ({webrtc_import_error}). Install aiohttp, aiortc and av."
                         )
                     print(f"Stream (WebRTC signaling): http://{display_host}:{args.port}/api/webrtc/offer")
+                    print(f"Stream (MJPEG fallback): http://{display_host}:{args.port}/stream.mjpg")
                     print(f"WebRTC test page: http://{display_host}:{args.port}/webrtc-test")
                     print(f"State API: http://{display_host}:{args.port}/api/state")
+                    if int(args.webrtc_bitrate) > 0:
+                        print(f"WebRTC target bitrate: {int(args.webrtc_bitrate)} kbps")
+                    else:
+                        print("WebRTC target bitrate: auto")
                     run_webrtc_server(
                         hub,
                         host=args.host,
@@ -1691,6 +1858,7 @@ def main():
                         stop_event=stop_event,
                         security=security,
                         codec_preference=args.webrtc_codec,
+                        target_bitrate_kbps=int(args.webrtc_bitrate),
                     )
                 else:
                     if requested_mode == "auto" and run_webrtc_server is None:

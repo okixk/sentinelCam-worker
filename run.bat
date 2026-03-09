@@ -128,14 +128,19 @@ echo   - creates/uses a venv in .runtime\venv
 echo   - installs python deps via an inline pip list (NO requirements.txt)
 echo   - starts webcam.py
 echo.
-echo The web repo simply displays http://WORKER_IP:8080/stream.mjpg.
-echo Worker-side WebRTC signaling is available at /api/webrtc/offer when started with --stream webrtc.
+echo The web repo prefers WebRTC at /api/webrtc/offer and falls back to http://WORKER_IP:8080/stream.mjpg.
+echo Default stream mode is auto. Use --stream mjpeg to force MJPEG-only mode.
 echo By default the worker binds only to 127.0.0.1.
 echo If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 echo Change DEFAULT_WEB_HOST in webcam.properties or pass --host 0.0.0.0 for LAN access.
 echo Optional hardening in webcam.properties:
 echo   WEB_AUTH_TOKEN=long-random-secret
 echo   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
+echo Stream quality defaults in webcam.properties:
+echo   DEFAULT_STREAM_MODE=auto
+echo   DEFAULT_WEBRTC_BITRATE_KBPS=2500
+echo   DEFAULT_STREAM_QUALITY=high
+echo   DEFAULT_JPEG_QUALITY=88
 echo.
 echo Examples:
 echo   run.bat
@@ -144,6 +149,8 @@ echo   run.bat --no-web
 echo   run.bat --window
 echo   run.bat --host 0.0.0.0 --port 8080
 echo   run.bat --stream webrtc
+echo   run.bat --webrtc-bitrate 2500
+echo   run.bat --stream-quality ultra
 exit /b 0
 
 :after_parse
@@ -317,7 +324,7 @@ exit /b %RC%
 set "HOST_CHOICE="
 set "DEFAULT_HOST_CHOICE=%~1"
 :prompt_host_choice_loop
-set /p "HOST_CHOICE=Stream host waehlen [1=localhost/127.0.0.1, 2=alle Interfaces/0.0.0.0] [%DEFAULT_HOST_CHOICE%]: "
+set /p "HOST_CHOICE=Select stream host [1=localhost/127.0.0.1, 2=all interfaces/0.0.0.0] [%DEFAULT_HOST_CHOICE%]: "
 if "!HOST_CHOICE!"=="" set "HOST_CHOICE=%DEFAULT_HOST_CHOICE%"
 if "!HOST_CHOICE!"=="1" (
   set "SELECTED_HOST=127.0.0.1"
@@ -327,5 +334,5 @@ if "!HOST_CHOICE!"=="2" (
   set "SELECTED_HOST=0.0.0.0"
   exit /b 0
 )
-echo Bitte nur 1 oder 2 eingeben.
+echo Please enter only 1 or 2.
 goto prompt_host_choice_loop
