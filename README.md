@@ -154,6 +154,12 @@ Window only:
 ./run.sh --no-web --window
 ```
 
+Force H.264/vp8/vp9/av1 codec for WebRTC (if supported):
+
+```bash
+./run.bat --stream webrtc --webrtc-codec h264
+```
+
 ## Controls
 
 The worker supports runtime controls such as:
