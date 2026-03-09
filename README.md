@@ -157,7 +157,6 @@ Window only:
 ## Controls
 
 The worker supports runtime controls such as:
-
 - next / previous model
 - pose on / off
 - overlay on / off
