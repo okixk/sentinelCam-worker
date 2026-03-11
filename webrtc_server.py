@@ -759,6 +759,8 @@ def _apply_codec_preference(transceiver: Any, preference: str) -> None:
 
     preferred = [codec for codec in codecs if getattr(codec, "mimeType", "") == preferred_mime]
     if not preferred:
+        _logger.warning("Requested codec %s is not supported by aiortc; available: %s",
+                        pref, ", ".join(getattr(c, "mimeType", "?") for c in codecs))
         return
     others = [codec for codec in codecs if getattr(codec, "mimeType", "") != preferred_mime]
     transceiver.setCodecPreferences(preferred + others)
@@ -1119,6 +1121,20 @@ def run_webrtc_server(
     else:
         enc_name, enc_opts, enc_label, enc_pix_fmt = "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
     print(f"WebRTC H.264 encoder: {enc_label}")
+
+    # Warn if the user selected a codec that aiortc likely doesn't support
+    _user_codec = (codec_preference or "auto").strip().lower()
+    if _user_codec not in ("", "auto", "h264", "vp8"):
+        try:
+            _caps = RTCRtpSender.getCapabilities("video")
+            _supported = {getattr(c, "mimeType", "") for c in (getattr(_caps, "codecs", []) or [])}
+            _mime_map = {"vp9": "video/VP9", "av1": "video/AV1"}
+            _wanted = _mime_map.get(_user_codec, f"video/{_user_codec}")
+            if _wanted not in _supported:
+                print(f"WARNING: Requested codec '{_user_codec}' is not supported by aiortc. "
+                      f"Available: {', '.join(sorted(_supported))}. Falling back to default.")
+        except Exception:
+            pass
 
     asyncio.run(
         _run_webrtc_server(

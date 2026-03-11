@@ -154,7 +154,7 @@ Window only:
 ./run.sh --no-web --window
 ```
 
-Force H.264/vp8/vp9/av1 codec for WebRTC (if supported):
+Force H.264/VP8 codec for WebRTC (VP9/AV1 require aiortc support):
 
 ```bash
 ./run.bat --stream webrtc --webrtc-codec h264
