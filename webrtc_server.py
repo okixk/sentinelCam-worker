@@ -39,7 +39,7 @@ _H264_ENCODER_CANDIDATES: List[Tuple[str, dict, str, str]] = [
     # (codec_name, low-latency options, label, pix_fmt)
     ("h264_nvenc", {"preset": "p4", "tune": "ull", "zerolatency": "1", "rc": "cbr"}, "NVIDIA NVENC", "yuv420p"),
     ("h264_amf",   {"usage": "ultralowlatency", "quality": "speed"},               "AMD AMF",      "nv12"),
-    ("h264_qsv",   {"preset": "veryfast", "low_power": "0"},                       "Intel QSV",    "nv12"),
+    ("h264_qsv",   {"preset": "veryfast", "async_depth": "1", "low_power": "1", "look_ahead": "0"}, "Intel QSV", "nv12"),
     ("libx264",    {"tune": "zerolatency"},                                         "CPU (libx264)", "yuv420p"),
 ]
 
@@ -160,6 +160,8 @@ class SharedEncoder:
 
     def stop(self) -> None:
         self._running = False
+        with self._cond:
+            self._cond.notify_all()
         if self._thread is not None:
             self._thread.join(timeout=3.0)
             self._thread = None
@@ -808,12 +810,16 @@ async def _run_webrtc_server(
     if hw_encoder_name != "libx264":
         _install_gpu_encoder(hw_encoder_name, hw_encoder_opts, hw_pix_fmt)
 
-    # Frame sharing: single encoder for all clients
+    # Force H264 codec when we have a GPU encoder or frame sharing configured,
+    # because the GPU encoder monkey-patch only works for H264.
+    effective_codec_pref = codec_preference
+    if (codec_preference or "auto").strip().lower() in ("", "auto"):
+        effective_codec_pref = "h264"
+
+    # SharedEncoder + SharedVideoTrack is disabled: aiortc expects VideoFrame
+    # objects from track.recv(), not pre-encoded av.Packet objects.
+    # Each client encodes independently via aiortc's pipeline (with GPU patch).
     shared_encoder: Optional[SharedEncoder] = None
-    if use_frame_sharing:
-        bitrate_bps = int(target_bitrate_kbps) * 1000 if int(target_bitrate_kbps) > 0 else 2_500_000
-        shared_encoder = SharedEncoder(hub, hw_encoder_name, hw_encoder_opts, bitrate_bps, hw_pix_fmt)
-        shared_encoder.start()
 
     async def handle_options(request: web.Request) -> web.Response:
         if request.path not in (
@@ -928,7 +934,7 @@ async def _run_webrtc_server(
         else:
             track = HubVideoStreamTrack(hub)
         transceiver = pc.addTransceiver(track, direction="sendonly")
-        _apply_codec_preference(transceiver, codec_preference)
+        _apply_codec_preference(transceiver, effective_codec_pref)
 
         try:
             await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=offer_type))
@@ -1073,10 +1079,21 @@ async def _run_webrtc_server(
     finally:
         if shared_encoder is not None:
             shared_encoder.stop()
-        close_tasks = [pc.close() for pc in list(pcs)]
+        coros = []
+        for pc in list(pcs):
+            try:
+                coros.append(pc.close())
+            except Exception:
+                pass
         pcs.clear()
-        if close_tasks:
-            await asyncio.gather(*close_tasks, return_exceptions=True)
+        if coros:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*coros, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except (asyncio.TimeoutError, Exception):
+                pass
         await runner.cleanup()
 
 
@@ -1102,8 +1119,6 @@ def run_webrtc_server(
     else:
         enc_name, enc_opts, enc_label, enc_pix_fmt = "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
     print(f"WebRTC H.264 encoder: {enc_label}")
-    if use_frame_sharing:
-        print("WebRTC frame sharing: enabled (single encoder for all clients)")
 
     asyncio.run(
         _run_webrtc_server(
