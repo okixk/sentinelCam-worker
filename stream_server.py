@@ -110,7 +110,7 @@ def run_mjpeg_server(
     boundary = "frame"
     security = security or SecurityConfig()
     bind_host = (host or "").strip().lower()
-    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1")
+    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "sentinelCam-worker"

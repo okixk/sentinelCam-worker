@@ -35,20 +35,20 @@ _logger = logging.getLogger("sentinelCam.webrtc")
 # ---------------------------------------------------------------------------
 
 # Ordered preference: GPU first, CPU fallback last.
-_H264_ENCODER_CANDIDATES: List[Tuple[str, dict, str]] = [
-    # (codec_name, low-latency options, label)
-    ("h264_nvenc", {"preset": "p4", "tune": "ull", "zerolatency": "1", "rc": "cbr"}, "NVIDIA NVENC"),
-    ("h264_amf",   {"usage": "ultralowlatency", "quality": "speed"},               "AMD AMF"),
-    ("h264_qsv",   {"preset": "veryfast", "low_power": "0"},                       "Intel QSV"),
-    ("libx264",    {"tune": "zerolatency"},                                         "CPU (libx264)"),
+_H264_ENCODER_CANDIDATES: List[Tuple[str, dict, str, str]] = [
+    # (codec_name, low-latency options, label, pix_fmt)
+    ("h264_nvenc", {"preset": "p4", "tune": "ull", "zerolatency": "1", "rc": "cbr"}, "NVIDIA NVENC", "yuv420p"),
+    ("h264_amf",   {"usage": "ultralowlatency", "quality": "speed"},               "AMD AMF",      "nv12"),
+    ("h264_qsv",   {"preset": "veryfast", "low_power": "0"},                       "Intel QSV",    "nv12"),
+    ("libx264",    {"tune": "zerolatency"},                                         "CPU (libx264)", "yuv420p"),
 ]
 
 
-def _detect_best_h264_encoder() -> Tuple[str, dict, str]:
-    """Probe available H.264 encoders and return (codec_name, options, label)."""
+def _detect_best_h264_encoder() -> Tuple[str, dict, str, str]:
+    """Probe available H.264 encoders and return (codec_name, options, label, pix_fmt)."""
     import numpy as np
 
-    for codec_name, opts, label in _H264_ENCODER_CANDIDATES:
+    for codec_name, opts, label, pix_fmt in _H264_ENCODER_CANDIDATES:
         if codec_name not in av.codecs_available:
             continue
         try:
@@ -56,7 +56,7 @@ def _detect_best_h264_encoder() -> Tuple[str, dict, str]:
             c.width = 64
             c.height = 64
             c.bit_rate = 500_000
-            c.pix_fmt = "yuv420p"
+            c.pix_fmt = pix_fmt
             c.framerate = fractions.Fraction(30, 1)
             c.time_base = fractions.Fraction(1, 30)
             c.options = dict(opts)
@@ -70,15 +70,15 @@ def _detect_best_h264_encoder() -> Tuple[str, dict, str]:
             list(c.encode(frame))
             list(c.encode(None))  # flush
             _logger.info("H.264 encoder detected: %s (%s)", codec_name, label)
-            return codec_name, opts, label
+            return codec_name, opts, label, pix_fmt
         except Exception:
             continue
 
     # Should not happen since libx264 is always bundled, but be safe
-    return "libx264", {"tune": "zerolatency"}, "CPU (libx264)"
+    return "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
 
 
-def _install_gpu_encoder(codec_name: str, codec_options: dict) -> None:
+def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "yuv420p") -> None:
     """Monkey-patch aiortc's H264Encoder to use the given codec."""
     try:
         from aiortc.codecs import h264 as _h264_mod
@@ -110,7 +110,7 @@ def _install_gpu_encoder(codec_name: str, codec_options: dict) -> None:
             self.codec.width = frame.width
             self.codec.height = frame.height
             self.codec.bit_rate = self.target_bitrate
-            self.codec.pix_fmt = "yuv420p"
+            self.codec.pix_fmt = pix_fmt
             self.codec.framerate = fractions.Fraction(_h264_mod.MAX_FRAME_RATE, 1)
             self.codec.time_base = fractions.Fraction(1, _h264_mod.MAX_FRAME_RATE)
             opts = dict(codec_options)
@@ -138,10 +138,11 @@ class SharedEncoder:
     Subscribers (one per peer connection) read the latest encoded packets.
     """
 
-    def __init__(self, hub: FrameHub, codec_name: str, codec_options: dict, target_bitrate_bps: int):
+    def __init__(self, hub: FrameHub, codec_name: str, codec_options: dict, target_bitrate_bps: int, pix_fmt: str = "yuv420p"):
         self._hub = hub
         self._codec_name = codec_name
         self._codec_options = codec_options
+        self._pix_fmt = pix_fmt
         self._target_bitrate = max(target_bitrate_bps, 500_000)
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
@@ -179,7 +180,7 @@ class SharedEncoder:
                 codec.width = vf.width
                 codec.height = vf.height
                 codec.bit_rate = self._target_bitrate
-                codec.pix_fmt = "yuv420p"
+                codec.pix_fmt = self._pix_fmt
                 codec.framerate = fractions.Fraction(30, 1)
                 codec.time_base = fractions.Fraction(1, 30)
                 opts = dict(self._codec_options)
@@ -792,25 +793,26 @@ async def _run_webrtc_server(
     hw_encoder_name: str,
     hw_encoder_opts: dict,
     hw_encoder_label: str,
+    hw_pix_fmt: str,
     use_frame_sharing: bool,
 ) -> None:
     pcs: Set[RTCPeerConnection] = set()
     boundary = "frame"
     bind_host = (host or "").strip().lower()
-    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1")
+    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "")
 
     if int(ice_port_min) > 0 and int(ice_port_max) >= int(ice_port_min):
         _configure_ice_port_range(int(ice_port_min), int(ice_port_max))
 
     # Install GPU / HW encoder patch (applies even for frame-sharing's fallback per-client path)
     if hw_encoder_name != "libx264":
-        _install_gpu_encoder(hw_encoder_name, hw_encoder_opts)
+        _install_gpu_encoder(hw_encoder_name, hw_encoder_opts, hw_pix_fmt)
 
     # Frame sharing: single encoder for all clients
     shared_encoder: Optional[SharedEncoder] = None
     if use_frame_sharing:
         bitrate_bps = int(target_bitrate_kbps) * 1000 if int(target_bitrate_kbps) > 0 else 2_500_000
-        shared_encoder = SharedEncoder(hub, hw_encoder_name, hw_encoder_opts, bitrate_bps)
+        shared_encoder = SharedEncoder(hub, hw_encoder_name, hw_encoder_opts, bitrate_bps, hw_pix_fmt)
         shared_encoder.start()
 
     async def handle_options(request: web.Request) -> web.Response:
@@ -1096,9 +1098,9 @@ def run_webrtc_server(
 
     # Detect best encoder
     if use_gpu:
-        enc_name, enc_opts, enc_label = _detect_best_h264_encoder()
+        enc_name, enc_opts, enc_label, enc_pix_fmt = _detect_best_h264_encoder()
     else:
-        enc_name, enc_opts, enc_label = "libx264", {"tune": "zerolatency"}, "CPU (libx264)"
+        enc_name, enc_opts, enc_label, enc_pix_fmt = "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
     print(f"WebRTC H.264 encoder: {enc_label}")
     if use_frame_sharing:
         print("WebRTC frame sharing: enabled (single encoder for all clients)")
@@ -1118,6 +1120,7 @@ def run_webrtc_server(
             hw_encoder_name=enc_name,
             hw_encoder_opts=enc_opts,
             hw_encoder_label=enc_label,
+            hw_pix_fmt=enc_pix_fmt,
             use_frame_sharing=bool(use_frame_sharing),
         )
     )
