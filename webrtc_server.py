@@ -10,16 +10,317 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+import socket
 import time
 from fractions import Fraction
 from typing import Any, Dict, Optional, Set
 from urllib.parse import urlparse
 
+import fractions
+import logging
+import threading
+from typing import List, Tuple
+
 from aiohttp import web
 from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription, VideoStreamTrack
 from av import VideoFrame
+import av
 
 from stream_server import ControlAPI, FrameHub, SecurityConfig
+
+_logger = logging.getLogger("sentinelCam.webrtc")
+
+# ---------------------------------------------------------------------------
+#  GPU / HW encoder auto-detection
+# ---------------------------------------------------------------------------
+
+# Ordered preference: GPU first, CPU fallback last.
+_H264_ENCODER_CANDIDATES: List[Tuple[str, dict, str]] = [
+    # (codec_name, low-latency options, label)
+    ("h264_nvenc", {"preset": "p4", "tune": "ull", "zerolatency": "1", "rc": "cbr"}, "NVIDIA NVENC"),
+    ("h264_amf",   {"usage": "ultralowlatency", "quality": "speed"},               "AMD AMF"),
+    ("h264_qsv",   {"preset": "veryfast", "low_power": "0"},                       "Intel QSV"),
+    ("libx264",    {"tune": "zerolatency"},                                         "CPU (libx264)"),
+]
+
+
+def _detect_best_h264_encoder() -> Tuple[str, dict, str]:
+    """Probe available H.264 encoders and return (codec_name, options, label)."""
+    import numpy as np
+
+    for codec_name, opts, label in _H264_ENCODER_CANDIDATES:
+        if codec_name not in av.codecs_available:
+            continue
+        try:
+            c = av.CodecContext.create(codec_name, "w")
+            c.width = 64
+            c.height = 64
+            c.bit_rate = 500_000
+            c.pix_fmt = "yuv420p"
+            c.framerate = fractions.Fraction(30, 1)
+            c.time_base = fractions.Fraction(1, 30)
+            c.options = dict(opts)
+            if codec_name == "libx264":
+                c.profile = "Baseline"
+            frame = av.VideoFrame.from_ndarray(
+                np.zeros((64, 64, 3), dtype=np.uint8), format="bgr24"
+            )
+            frame.pts = 0
+            frame.time_base = fractions.Fraction(1, 30)
+            list(c.encode(frame))
+            list(c.encode(None))  # flush
+            _logger.info("H.264 encoder detected: %s (%s)", codec_name, label)
+            return codec_name, opts, label
+        except Exception:
+            continue
+
+    # Should not happen since libx264 is always bundled, but be safe
+    return "libx264", {"tune": "zerolatency"}, "CPU (libx264)"
+
+
+def _install_gpu_encoder(codec_name: str, codec_options: dict) -> None:
+    """Monkey-patch aiortc's H264Encoder to use the given codec."""
+    try:
+        from aiortc.codecs import h264 as _h264_mod
+    except ImportError:
+        return
+
+    _OrigEncoder = _h264_mod.H264Encoder
+
+    _orig_encode_frame = _OrigEncoder._encode_frame
+
+    def _patched_encode_frame(self, frame, force_keyframe):
+        # On first call (or resolution/bitrate change), create codec with our chosen encoder
+        if self.codec and (
+            frame.width != self.codec.width
+            or frame.height != self.codec.height
+            or abs(self.target_bitrate - self.codec.bit_rate) / max(self.codec.bit_rate, 1) > 0.1
+        ):
+            self.buffer_data = b""
+            self.buffer_pts = None
+            self.codec = None
+
+        if force_keyframe:
+            frame.pict_type = av.video.frame.PictureType.I
+        else:
+            frame.pict_type = av.video.frame.PictureType.NONE
+
+        if self.codec is None:
+            self.codec = av.CodecContext.create(codec_name, "w")
+            self.codec.width = frame.width
+            self.codec.height = frame.height
+            self.codec.bit_rate = self.target_bitrate
+            self.codec.pix_fmt = "yuv420p"
+            self.codec.framerate = fractions.Fraction(_h264_mod.MAX_FRAME_RATE, 1)
+            self.codec.time_base = fractions.Fraction(1, _h264_mod.MAX_FRAME_RATE)
+            opts = dict(codec_options)
+            if codec_name == "libx264":
+                opts.setdefault("level", "31")
+                self.codec.profile = "Baseline"
+            self.codec.options = opts
+
+        data_to_send = b""
+        for package in self.codec.encode(frame):
+            data_to_send += bytes(package)
+        if data_to_send:
+            yield from self._split_bitstream(data_to_send)
+
+    _OrigEncoder._encode_frame = _patched_encode_frame
+
+
+# ---------------------------------------------------------------------------
+#  Frame-sharing: encode once, distribute to all peer connections
+# ---------------------------------------------------------------------------
+
+class SharedEncoder:
+    """Encodes frames once via the best available H.264 encoder.
+
+    Subscribers (one per peer connection) read the latest encoded packets.
+    """
+
+    def __init__(self, hub: FrameHub, codec_name: str, codec_options: dict, target_bitrate_bps: int):
+        self._hub = hub
+        self._codec_name = codec_name
+        self._codec_options = codec_options
+        self._target_bitrate = max(target_bitrate_bps, 500_000)
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+        self._packets: List[bytes] = []
+        self._seq: int = 0
+        self._running = False
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._encode_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._running = False
+        if self._thread is not None:
+            self._thread.join(timeout=3.0)
+            self._thread = None
+
+    def _encode_loop(self) -> None:
+        codec = None
+        last_ts = 0.0
+        while self._running:
+            frame_bgr, ts = self._hub.wait_newer_frame(last_ts, 1.0)
+            if frame_bgr is None:
+                continue
+            last_ts = ts
+
+            vf = VideoFrame.from_ndarray(frame_bgr, format="bgr24")
+
+            if codec is None or vf.width != codec.width or vf.height != codec.height:
+                codec = av.CodecContext.create(self._codec_name, "w")
+                codec.width = vf.width
+                codec.height = vf.height
+                codec.bit_rate = self._target_bitrate
+                codec.pix_fmt = "yuv420p"
+                codec.framerate = fractions.Fraction(30, 1)
+                codec.time_base = fractions.Fraction(1, 30)
+                opts = dict(self._codec_options)
+                if self._codec_name == "libx264":
+                    opts.setdefault("level", "31")
+                    codec.profile = "Baseline"
+                codec.options = opts
+
+            vf.pts = int(ts * 90000)
+            vf.time_base = Fraction(1, 90000)
+            vf.pict_type = av.video.frame.PictureType.NONE
+
+            try:
+                raw = b""
+                for pkt in codec.encode(vf):
+                    raw += bytes(pkt)
+                if not raw:
+                    continue
+            except Exception:
+                codec = None
+                continue
+
+            with self._cond:
+                self._packets = self._split_bitstream(raw)
+                self._seq += 1
+                self._cond.notify_all()
+
+    @staticmethod
+    def _split_bitstream(buf: bytes) -> List[bytes]:
+        """Split H.264 Annex-B bitstream into NAL units."""
+        nals: List[bytes] = []
+        i = 0
+        while True:
+            i = buf.find(b"\x00\x00\x01", i)
+            if i == -1:
+                break
+            i += 3
+            end = buf.find(b"\x00\x00\x01", i)
+            if end == -1:
+                nals.append(buf[i:])
+                break
+            elif end > 0 and buf[end - 1] == 0:
+                nals.append(buf[i:end - 1])
+            else:
+                nals.append(buf[i:end])
+        return nals
+
+    def wait_newer(self, last_seq: int, timeout: float = 1.0) -> Tuple[List[bytes], int]:
+        """Block until a new encoded frame is available. Returns (nal_list, seq)."""
+        end = time.time() + timeout
+        with self._cond:
+            while self._seq <= last_seq:
+                remaining = end - time.time()
+                if remaining <= 0:
+                    return self._packets, self._seq
+                self._cond.wait(timeout=remaining)
+            return list(self._packets), self._seq
+
+
+class SharedVideoTrack(VideoStreamTrack):
+    """A track that reads pre-encoded NALs from SharedEncoder and returns them
+    as av.Packet so aiortc packetizes without re-encoding."""
+
+    kind = "video"
+
+    def __init__(self, shared: SharedEncoder):
+        super().__init__()
+        self._shared = shared
+        self._last_seq = 0
+        self._clock_start: float | None = None
+        self._last_pts = 0
+
+    async def recv(self) -> av.Packet:
+        nals, seq = await asyncio.to_thread(self._shared.wait_newer, self._last_seq, 1.0)
+        while not nals:
+            await asyncio.sleep(0.02)
+            nals, seq = await asyncio.to_thread(self._shared.wait_newer, self._last_seq, 1.0)
+        self._last_seq = seq
+
+        now = time.time()
+        if self._clock_start is None:
+            self._clock_start = now
+            pts = 0
+        else:
+            pts = max(int((now - self._clock_start) * 90000), self._last_pts + 1)
+        self._last_pts = pts
+
+        # Reassemble NALs into Annex-B bitstream
+        data = b""
+        for nal in nals:
+            data += b"\x00\x00\x00\x01" + nal
+
+        packet = av.Packet(data)
+        packet.pts = pts
+        packet.dts = pts
+        packet.time_base = Fraction(1, 90000)
+        return packet
+
+
+def _configure_ice_port_range(port_min: int, port_max: int) -> None:
+    """Restrict aioice ICE UDP candidate ports to [port_min, port_max]."""
+    try:
+        import aioice.ice
+    except ImportError:
+        return
+
+    _orig_gather = aioice.ice.Connection.gather_candidates
+
+    async def _gather_restricted(self):
+        loop = asyncio.get_event_loop()
+        _real_create = loop.create_datagram_endpoint
+        _allocated: set = set()
+
+        async def _create_in_range(protocol_factory, *, local_addr=None, **kw):
+            if local_addr is not None and len(local_addr) == 2 and local_addr[1] == 0:
+                host = local_addr[0]
+                for port in range(port_min, port_max + 1):
+                    if port in _allocated:
+                        continue
+                    try:
+                        result = await _real_create(
+                            protocol_factory, local_addr=(host, port), **kw
+                        )
+                        _allocated.add(port)
+                        return result
+                    except OSError:
+                        continue
+                raise OSError(
+                    f"No available UDP port in range {port_min}-{port_max}"
+                )
+            return await _real_create(
+                protocol_factory, local_addr=local_addr, **kw
+            )
+
+        loop.create_datagram_endpoint = _create_in_range
+        try:
+            await _orig_gather(self)
+        finally:
+            loop.create_datagram_endpoint = _real_create
+
+    aioice.ice.Connection.gather_candidates = _gather_restricted
 
 
 TEST_PAGE_HTML = """<!doctype html>
@@ -486,11 +787,31 @@ async def _run_webrtc_server(
     security: SecurityConfig,
     codec_preference: str,
     target_bitrate_kbps: int,
+    ice_port_min: int,
+    ice_port_max: int,
+    hw_encoder_name: str,
+    hw_encoder_opts: dict,
+    hw_encoder_label: str,
+    use_frame_sharing: bool,
 ) -> None:
     pcs: Set[RTCPeerConnection] = set()
     boundary = "frame"
     bind_host = (host or "").strip().lower()
     loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1")
+
+    if int(ice_port_min) > 0 and int(ice_port_max) >= int(ice_port_min):
+        _configure_ice_port_range(int(ice_port_min), int(ice_port_max))
+
+    # Install GPU / HW encoder patch (applies even for frame-sharing's fallback per-client path)
+    if hw_encoder_name != "libx264":
+        _install_gpu_encoder(hw_encoder_name, hw_encoder_opts)
+
+    # Frame sharing: single encoder for all clients
+    shared_encoder: Optional[SharedEncoder] = None
+    if use_frame_sharing:
+        bitrate_bps = int(target_bitrate_kbps) * 1000 if int(target_bitrate_kbps) > 0 else 2_500_000
+        shared_encoder = SharedEncoder(hub, hw_encoder_name, hw_encoder_opts, bitrate_bps)
+        shared_encoder.start()
 
     async def handle_options(request: web.Request) -> web.Response:
         if request.path not in (
@@ -600,7 +921,10 @@ async def _run_webrtc_server(
                 pcs.discard(pc)
                 await pc.close()
 
-        track = HubVideoStreamTrack(hub)
+        if shared_encoder is not None:
+            track = SharedVideoTrack(shared_encoder)
+        else:
+            track = HubVideoStreamTrack(hub)
         transceiver = pc.addTransceiver(track, direction="sendonly")
         _apply_codec_preference(transceiver, codec_preference)
 
@@ -745,6 +1069,8 @@ async def _run_webrtc_server(
         else:
             await asyncio.to_thread(stop_event.wait)
     finally:
+        if shared_encoder is not None:
+            shared_encoder.stop()
         close_tasks = [pc.close() for pc in list(pcs)]
         pcs.clear()
         if close_tasks:
@@ -761,8 +1087,22 @@ def run_webrtc_server(
     security: Optional[SecurityConfig] = None,
     codec_preference: str = "auto",
     target_bitrate_kbps: int = 2500,
+    ice_port_min: int = 0,
+    ice_port_max: int = 0,
+    use_gpu: bool = True,
+    use_frame_sharing: bool = True,
 ) -> None:
     security = security or SecurityConfig()
+
+    # Detect best encoder
+    if use_gpu:
+        enc_name, enc_opts, enc_label = _detect_best_h264_encoder()
+    else:
+        enc_name, enc_opts, enc_label = "libx264", {"tune": "zerolatency"}, "CPU (libx264)"
+    print(f"WebRTC H.264 encoder: {enc_label}")
+    if use_frame_sharing:
+        print("WebRTC frame sharing: enabled (single encoder for all clients)")
+
     asyncio.run(
         _run_webrtc_server(
             hub=hub,
@@ -773,5 +1113,11 @@ def run_webrtc_server(
             security=security,
             codec_preference=codec_preference,
             target_bitrate_kbps=int(target_bitrate_kbps),
+            ice_port_min=int(ice_port_min),
+            ice_port_max=int(ice_port_max),
+            hw_encoder_name=enc_name,
+            hw_encoder_opts=enc_opts,
+            hw_encoder_label=enc_label,
+            use_frame_sharing=bool(use_frame_sharing),
         )
     )

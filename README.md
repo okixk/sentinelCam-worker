@@ -160,6 +160,24 @@ Force H.264/vp8/vp9/av1 codec for WebRTC (if supported):
 ./run.bat --stream webrtc --webrtc-codec h264
 ```
 
+Restrict WebRTC media to a specific UDP port range (useful for firewalls):
+
+```bash
+./run.sh --webrtc-port-min 50000 --webrtc-port-max 51000
+```
+
+Force CPU encoding (disable GPU auto-detection):
+
+```bash
+./run.sh --webrtc-gpu 0
+```
+
+Disable frame sharing (separate encoder per client):
+
+```bash
+./run.sh --webrtc-frame-sharing 0
+```
+
 ## Controls
 
 The worker supports runtime controls such as:
@@ -180,6 +198,9 @@ Important defaults:
 - `DEFAULT_WEB_HOST=127.0.0.1`
 - `DEFAULT_STREAM_MODE=auto`
 - `DEFAULT_WEBRTC_BITRATE_KBPS=2500`
+- `DEFAULT_WEBRTC_PORT_MIN=50000` / `DEFAULT_WEBRTC_PORT_MAX=51000`
+- `DEFAULT_WEBRTC_GPU=1` (auto-detect GPU encoder; `0` = force CPU)
+- `DEFAULT_WEBRTC_FRAME_SHARING=1` (encode once, share to all clients)
 - `DEFAULT_STREAM_QUALITY=high`
 - `DEFAULT_JPEG_QUALITY=88`
 
@@ -204,6 +225,9 @@ Useful security-related settings:
 - For remote browser access, prefer a reverse proxy or the `sentinelCam-web` local web server instead of exposing the worker directly.
 - If you enable worker auth, the browser UI should usually connect through the proxy/web server, which injects the worker token server-side.
 - WebRTC support requires `aiohttp`, `aiortc`, and `av`.
+- GPU H.264 encoding is auto-detected at startup (NVIDIA NVENC → AMD AMF → Intel QSV → CPU libx264). Disable with `--webrtc-gpu 0` if needed.
+- Frame sharing encodes each video frame once and distributes the encoded packets to all connected WebRTC clients, significantly reducing CPU/GPU load with multiple viewers.
+- WebRTC ICE UDP ports default to 50000–51000 for easier firewall configuration. Set both to `0` for OS-assigned ports.
 
 ## Status
 

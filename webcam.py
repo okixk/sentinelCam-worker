@@ -874,6 +874,32 @@ def main():
         default=_env_int("DEFAULT_WEBRTC_BITRATE_KBPS", 2500),
         help="Target WebRTC video bitrate in kbps (0 = aiortc default bitrate control).",
     )
+    ap.add_argument(
+        "--webrtc-port-min",
+        type=int,
+        default=_env_int("DEFAULT_WEBRTC_PORT_MIN", 0),
+        help="Minimum UDP port for WebRTC ICE candidates (0 = OS default).",
+    )
+    ap.add_argument(
+        "--webrtc-port-max",
+        type=int,
+        default=_env_int("DEFAULT_WEBRTC_PORT_MAX", 0),
+        help="Maximum UDP port for WebRTC ICE candidates (0 = OS default).",
+    )
+    ap.add_argument(
+        "--webrtc-gpu",
+        type=int,
+        default=_env_int("DEFAULT_WEBRTC_GPU", 1),
+        choices=[0, 1],
+        help="Use GPU H.264 encoder if available (1=auto-detect, 0=force CPU).",
+    )
+    ap.add_argument(
+        "--webrtc-frame-sharing",
+        type=int,
+        default=_env_int("DEFAULT_WEBRTC_FRAME_SHARING", 1),
+        choices=[0, 1],
+        help="Encode once, share to all clients (1=on, 0=off).",
+    )
 
 
     raw_argv = sys.argv[1:]
@@ -891,6 +917,9 @@ def main():
         print("  Worker-side WebRTC signaling endpoint: POST /api/webrtc/offer")
         print("  MJPEG fallback endpoint: GET /stream.mjpg")
         print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --webrtc-bitrate KBPS")
+        print("  WebRTC port range: --webrtc-port-min PORT --webrtc-port-max PORT")
+        print("  WebRTC GPU: --webrtc-gpu 0|1  (1=auto-detect GPU encoder, 0=force CPU)")
+        print("  Frame sharing: --webrtc-frame-sharing 0|1  (1=encode once for all clients)")
         print("  Stream quality: --stream-quality auto|low|medium|high|ultra")
         print("  MJPEG:  --jpeg-quality 10-95")
         print("  Capture: --width W --height H --source N|URL")
@@ -902,6 +931,12 @@ def main():
         raise SystemExit("--jpeg-quality must be between 10 and 95.")
     if int(args.webrtc_bitrate) < 0:
         raise SystemExit("--webrtc-bitrate must be >= 0.")
+    if int(args.webrtc_port_min) < 0 or int(args.webrtc_port_max) < 0:
+        raise SystemExit("--webrtc-port-min and --webrtc-port-max must be >= 0.")
+    if (int(args.webrtc_port_min) > 0) != (int(args.webrtc_port_max) > 0):
+        raise SystemExit("--webrtc-port-min and --webrtc-port-max must both be set or both be 0.")
+    if int(args.webrtc_port_min) > 0 and int(args.webrtc_port_min) > int(args.webrtc_port_max):
+        raise SystemExit("--webrtc-port-min must be <= --webrtc-port-max.")
 
     allowed_web_origins = _parse_allowed_origins(args.web_allow_origin)
     web_auth_token = (args.web_auth_token or "").strip()
@@ -1850,6 +1885,8 @@ def main():
                         print(f"WebRTC target bitrate: {int(args.webrtc_bitrate)} kbps")
                     else:
                         print("WebRTC target bitrate: auto")
+                    if int(args.webrtc_port_min) > 0:
+                        print(f"WebRTC ICE port range: {int(args.webrtc_port_min)}-{int(args.webrtc_port_max)}")
                     run_webrtc_server(
                         hub,
                         host=args.host,
@@ -1859,6 +1896,10 @@ def main():
                         security=security,
                         codec_preference=args.webrtc_codec,
                         target_bitrate_kbps=int(args.webrtc_bitrate),
+                        ice_port_min=int(args.webrtc_port_min),
+                        ice_port_max=int(args.webrtc_port_max),
+                        use_gpu=bool(int(args.webrtc_gpu)),
+                        use_frame_sharing=bool(int(args.webrtc_frame_sharing)),
                     )
                 else:
                     if requested_mode == "auto" and run_webrtc_server is None:
