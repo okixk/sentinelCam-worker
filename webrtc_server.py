@@ -83,9 +83,24 @@ def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "y
     try:
         from aiortc.codecs import h264 as _h264_mod
     except ImportError:
+        _logger.warning("Cannot patch GPU encoder: aiortc.codecs.h264 not importable")
         return
 
-    _OrigEncoder = _h264_mod.H264Encoder
+    try:
+        import aiortc as _aiortc_pkg
+        _logger.info("aiortc version: %s", getattr(_aiortc_pkg, "__version__", "unknown"))
+    except Exception:
+        pass
+
+    try:
+        _OrigEncoder = _h264_mod.H264Encoder
+        _orig_encode_frame = _OrigEncoder._encode_frame
+    except AttributeError:
+        _logger.warning(
+            "Cannot patch GPU encoder: H264Encoder._encode_frame not found (aiortc API changed?). "
+            "Falling back to default encoder."
+        )
+        return
 
     _orig_encode_frame = _OrigEncoder._encode_frame
 
@@ -126,6 +141,7 @@ def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "y
             yield from self._split_bitstream(data_to_send)
 
     _OrigEncoder._encode_frame = _patched_encode_frame
+    _logger.info("Patched aiortc H264Encoder to use %s (pix_fmt=%s)", codec_name, pix_fmt)
 
 
 # ---------------------------------------------------------------------------
@@ -904,10 +920,30 @@ async def _run_webrtc_server(
 
         return _json_response(request, security, loopback_bind, {"ok": True})
 
+    # Rate limiting for WebRTC offers: per-IP and global
+    _offer_timestamps: Dict[str, List[float]] = {}
+    _OFFER_RATE_LIMIT_PER_IP = 5
+    _OFFER_RATE_WINDOW = 30.0
+    _MAX_ACTIVE_PCS = 20
+
     async def handle_offer(request: web.Request) -> web.Response:
         error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
             return error
+
+        # Global connection limit
+        if len(pcs) >= _MAX_ACTIVE_PCS:
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "too many active connections"}, status=429)
+
+        # Per-IP rate limiting
+        client_ip = request.remote or "unknown"
+        now = asyncio.get_event_loop().time()
+        timestamps = _offer_timestamps.get(client_ip, [])
+        timestamps = [t for t in timestamps if now - t < _OFFER_RATE_WINDOW]
+        if len(timestamps) >= _OFFER_RATE_LIMIT_PER_IP:
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "rate limit exceeded"}, status=429)
+        timestamps.append(now)
+        _offer_timestamps[client_ip] = timestamps
 
         if request.content_length is not None and request.content_length > int(security.max_cmd_bytes):
             return _json_response(request, security, loopback_bind, {"ok": False, "error": "request body too large"}, status=413)
@@ -1073,12 +1109,48 @@ async def _run_webrtc_server(
     site = web.TCPSite(runner, host=host, port=int(port))
     await site.start()
 
+    # Periodically clean up stalled peer connections
+    pc_creation_times: Dict[RTCPeerConnection, float] = {}
+
+    _orig_pcs_add = pcs.add
+
+    def _tracked_add(pc: RTCPeerConnection) -> None:
+        _orig_pcs_add(pc)
+        pc_creation_times[pc] = asyncio.get_event_loop().time()
+
+    # Monkey-patch pcs.add so creation time is tracked automatically
+    pcs.add = _tracked_add  # type: ignore[assignment]
+
+    async def _cleanup_stalled_pcs() -> None:
+        while True:
+            await asyncio.sleep(30)
+            now = asyncio.get_event_loop().time()
+            stale: List[RTCPeerConnection] = []
+            for pc in list(pcs):
+                state = pc.connectionState
+                if state in ("failed", "closed", "disconnected"):
+                    stale.append(pc)
+                elif state in ("new", "connecting"):
+                    created = pc_creation_times.get(pc, now)
+                    if now - created > 60:
+                        stale.append(pc)
+            for pc in stale:
+                pcs.discard(pc)
+                pc_creation_times.pop(pc, None)
+                try:
+                    await pc.close()
+                except Exception:
+                    pass
+
+    cleanup_task = asyncio.create_task(_cleanup_stalled_pcs())
+
     try:
         if stop_event is None:
             await asyncio.Future()
         else:
             await asyncio.to_thread(stop_event.wait)
     finally:
+        cleanup_task.cancel()
         if shared_encoder is not None:
             shared_encoder.stop()
         coros = []

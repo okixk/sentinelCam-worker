@@ -400,13 +400,18 @@ def run_mjpeg_server(
             self.end_headers()
 
             last_ts = 0.0
+            idle_seconds = 0.0
             try:
                 while True:
                     if stop_event is not None and stop_event.is_set():
                         break
                     jpeg, last_ts = hub.wait_newer(last_ts, timeout=1.0)
                     if not jpeg:
+                        idle_seconds += 1.0
+                        if idle_seconds >= 30.0:
+                            break
                         continue
+                    idle_seconds = 0.0
                     self.wfile.write(f"--{boundary}\r\n".encode("utf-8"))
                     self.wfile.write(b"Content-Type: image/jpeg\r\n")
                     self.wfile.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode("utf-8"))
@@ -417,7 +422,28 @@ def run_mjpeg_server(
             except Exception:
                 return
 
-    httpd = ThreadingHTTPServer((host, int(port)), Handler)
+    class LimitedThreadingHTTPServer(ThreadingHTTPServer):
+        """ThreadingHTTPServer with a maximum connection limit."""
+        max_connections = 50
+        _active_connections = 0
+        _conn_lock = threading.Lock()
+
+        def process_request(self, request, client_address):
+            with self._conn_lock:
+                if self._active_connections >= self.max_connections:
+                    try:
+                        request.close()
+                    except Exception:
+                        pass
+                    return
+                self._active_connections += 1
+            try:
+                super().process_request(request, client_address)
+            finally:
+                with self._conn_lock:
+                    self._active_connections = max(0, self._active_connections - 1)
+
+    httpd = LimitedThreadingHTTPServer((host, int(port)), Handler)
     httpd.daemon_threads = True
 
     stopper: Optional[threading.Thread] = None

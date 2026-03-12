@@ -958,6 +958,11 @@ def main():
     if allowed_web_origins and not web_auth_token:
         print("WARNING: Cross-origin browser access is enabled without --web-auth-token.")
     if web_auth_token and len(web_auth_token) < 16:
+        if public_bind:
+            raise SystemExit(
+                "ERROR: --web-auth-token must be at least 16 characters when binding to a public interface. "
+                "Use a longer token or bind to 127.0.0.1."
+            )
         print("WARNING: --web-auth-token is short. Use at least 16 random characters.")
 
     requested_stream_mode = (args.stream or "auto").strip().lower()
@@ -1069,6 +1074,7 @@ def main():
     src = args.source if args.source is not None else str(args.cam)
     cap = _open_capture(src, args.width, args.height)
     if not cap.isOpened():
+        cap.release()
         raise RuntimeError(f"Could not open source: {src}")
 
     # Reduce capture buffering where supported (helps latency on RTSP/USB cams)
@@ -1142,7 +1148,7 @@ def main():
             with state_lock:
                 web_state.update(kw)
         except Exception:
-            pass
+            logging.getLogger("sentinelCam.worker").exception("Failed to update web state")
 
     def _get_state() -> Dict[str, object]:
         with state_lock:
@@ -1806,6 +1812,14 @@ def main():
                     cv2.imshow(window_name, frame)
 
                 frame_count += 1
+
+                # Prune stale track state every 30 frames to prevent unbounded growth
+                if frame_count % 30 == 0 and len(ids) > 0:
+                    active_ids = set(int(t) for t in ids)
+                    for d in (tracks, sit_status, face_point, pose_cache):
+                        stale = [k for k in d if k not in active_ids]
+                        for k in stale:
+                            del d[k]
 
                 elapsed = time.time() - loop_start
                 if frame_interval > 0 and elapsed < frame_interval:
