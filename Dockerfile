@@ -25,6 +25,7 @@ RUN groupadd -g 1000 sentinelcam && \
 
 COPY --from=builder /install /usr/local
 COPY --chown=sentinelcam:sentinelcam . .
+RUN chown sentinelcam:sentinelcam /app
 
 USER sentinelcam
 

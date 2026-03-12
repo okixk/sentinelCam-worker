@@ -1,4 +1,4 @@
-# sentinelCam Worker
+# sentinelCam Worker Development
 
 The worker is the processing backend of the sentinelCam stack.
 
@@ -80,11 +80,14 @@ The worker supports three web stream modes:
   - `POST /api/cmd`
   - `GET /health`
   - `GET /stream.mjpg` as fallback
+  - `GET /frame.jpg` latest snapshot with YOLO overlay
+  - `GET /frame-raw.jpg` latest snapshot without YOLO overlay
 
 - `--stream mjpeg`  
   Forces MJPEG-only mode and serves:
   - `GET /stream.mjpg`
   - `GET /frame.jpg`
+  - `GET /frame-raw.jpg`
   - `GET /api/state`
   - `POST /api/cmd`
   - `GET /health`
@@ -219,8 +222,20 @@ Useful security-related settings:
 - `run.sh` - Linux/macOS launcher
 - `run.bat` - Windows launcher
 - `webcam.properties` - shared launcher defaults
+- `Dockerfile` - multi-stage Docker build (Python 3.12-slim)
+- `docker-compose.worker.yml` - Docker Compose config
+- `.dockerignore` - excludes `.git`, caches, and non-runtime files from the image
+- `requirements.txt` - Python dependencies for Docker and pip installs
 
 ## Docker
+
+The image uses a multi-stage build based on `python:3.12-slim`, runs as a non-root user (`sentinelcam`), and includes a built-in healthcheck on `/health`.
+
+Default container entrypoint arguments:
+
+```
+--host 0.0.0.0 --port 8080 --no-window --stream auto
+```
 
 ### Build
 
@@ -228,16 +243,34 @@ Useful security-related settings:
 docker build -t sentinelcam-worker .
 ```
 
-### Run (with webcam, Linux)
+### Run (with webcam, Linux only)
+
+Webcam passthrough via `--device` requires Linux. It does **not** work on Windows or macOS Docker Desktop.
 
 ```bash
 docker run --rm -p 8080:8080 --device /dev/video0 sentinelcam-worker --source 0
 ```
 
-### Run (with remote stream)
+To keep the worker accessible only on localhost (recommended for local use):
 
 ```bash
-docker run --rm -p 8080:8080 sentinelcam-worker --source http://HOST:PORT/stream.mjpg
+docker run --rm -p 127.0.0.1:8080:8080 --device /dev/video0 sentinelcam-worker --source 0
+```
+
+### Run (with remote stream)
+
+This works on all platforms (Linux, macOS, Windows) because no device passthrough is needed.
+
+```bash
+docker run --rm -p 127.0.0.1:8080:8080 sentinelcam-worker --source http://HOST:PORT/stream.mjpg
+```
+
+### WebRTC UDP ports
+
+To use WebRTC, expose the ICE UDP port range:
+
+```bash
+docker run --rm -p 127.0.0.1:8080:8080 -p 50000-51000:50000-51000/udp sentinelcam-worker --source 0
 ```
 
 ### Environment Variables
@@ -245,11 +278,22 @@ docker run --rm -p 8080:8080 sentinelcam-worker --source http://HOST:PORT/stream
 - `WEB_AUTH_TOKEN` — Bearer token for API authentication
 - `WEB_ALLOWED_ORIGINS` — Comma-separated CORS origin whitelist
 
+Example:
+
+```bash
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e WEB_AUTH_TOKEN=mytoken \
+  -e WEB_ALLOWED_ORIGINS=http://localhost:3000 \
+  sentinelcam-worker --source http://HOST:PORT/stream.mjpg
+```
+
 ### Docker Compose
 
 ```bash
 docker compose -f docker-compose.worker.yml up
 ```
+
+The compose file maps port `8080` and the WebRTC UDP range, passes through `/dev/video0` (Linux), and supports `WORKER_TOKEN` as an environment variable for auth.
 
 ## Notes
 
