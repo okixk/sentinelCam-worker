@@ -781,6 +781,7 @@ async def _run_webrtc_server(
     hw_encoder_label: str,
     hw_pix_fmt: str,
     use_frame_sharing: bool,
+    raw_hub: Optional[FrameHub] = None,
 ) -> None:
     pcs: Set[RTCPeerConnection] = set()
     boundary = "frame"
@@ -814,6 +815,7 @@ async def _run_webrtc_server(
             "/video_feed",
             "/frame.jpg",
             "/snapshot.jpg",
+            "/frame-raw.jpg",
             "/api/state",
             "/api/cmd",
             "/health",
@@ -1001,6 +1003,23 @@ async def _run_webrtc_server(
         _apply_cors_headers(response, request, security, loopback_bind)
         return response
 
+    async def handle_raw_frame(request: web.Request) -> web.Response:
+        error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
+        if error is not None:
+            return error
+
+        source = raw_hub if raw_hub is not None else hub
+        jpeg, _ = await asyncio.to_thread(source.latest)
+        if not jpeg:
+            return _plain_response(request, security, loopback_bind, "No frame yet\n", status=503)
+
+        response = web.Response(body=jpeg, content_type="image/jpeg")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        _apply_common_headers(response)
+        _apply_cors_headers(response, request, security, loopback_bind)
+        return response
+
     async def handle_mjpeg_stream(request: web.Request) -> web.StreamResponse:
         error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
@@ -1065,6 +1084,7 @@ async def _run_webrtc_server(
     app.router.add_get("/video_feed", handle_mjpeg_stream)
     app.router.add_get("/frame.jpg", handle_frame)
     app.router.add_get("/snapshot.jpg", handle_frame)
+    app.router.add_get("/frame-raw.jpg", handle_raw_frame)
     app.router.add_get("/api/state", handle_state)
     app.router.add_get("/offer", handle_offer_info)
     app.router.add_get("/api/webrtc/offer", handle_offer_info)
@@ -1143,6 +1163,7 @@ def run_webrtc_server(
     ice_port_max: int = 0,
     use_gpu: bool = True,
     use_frame_sharing: bool = True,
+    raw_hub: Optional[FrameHub] = None,
 ) -> None:
     security = security or SecurityConfig()
 
@@ -1186,5 +1207,6 @@ def run_webrtc_server(
             hw_encoder_label=enc_label,
             hw_pix_fmt=enc_pix_fmt,
             use_frame_sharing=bool(use_frame_sharing),
+            raw_hub=raw_hub,
         )
     )
