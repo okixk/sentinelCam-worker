@@ -5,11 +5,12 @@ stream_server.py (worker-side)
 Minimal MJPEG + JSON control API, *no* HTML UI.
 
 Endpoints:
-  GET  /stream.mjpg   -> multipart/x-mixed-replace MJPEG stream
-  GET  /frame.jpg     -> latest JPEG frame
-  GET  /api/state     -> JSON state (CORS enabled)
-  POST /api/cmd       -> JSON command (CORS enabled)
-  GET  /health        -> JSON health
+  GET  /stream.mjpg    -> multipart/x-mixed-replace MJPEG stream
+  GET  /frame.jpg      -> latest JPEG frame (with YOLO overlay)
+  GET  /frame-raw.jpg  -> latest JPEG frame (without YOLO overlay)
+  GET  /api/state      -> JSON state (CORS enabled)
+  POST /api/cmd        -> JSON command (CORS enabled)
+  GET  /health         -> JSON health
 
 Everything else: 404.
 """
@@ -99,6 +100,7 @@ def run_mjpeg_server(
     control: Optional[ControlAPI] = None,
     stop_event: Optional[threading.Event] = None,
     security: Optional[SecurityConfig] = None,
+    raw_hub: Optional["FrameHub"] = None,
 ) -> None:
     boundary = "frame"
     security = security or SecurityConfig()
@@ -205,6 +207,7 @@ def run_mjpeg_server(
                 "/video_feed",
                 "/frame.jpg",
                 "/snapshot.jpg",
+                "/frame-raw.jpg",
                 "/api/state",
                 "/api/cmd",
                 "/health",
@@ -238,6 +241,10 @@ def run_mjpeg_server(
 
             if p in ("/frame.jpg", "/snapshot.jpg"):
                 self._handle_frame()
+                return
+
+            if p == "/frame-raw.jpg":
+                self._handle_raw_frame()
                 return
 
             if p in ("/api/state",):
@@ -330,6 +337,24 @@ def run_mjpeg_server(
 
         def _handle_frame(self) -> None:
             jpeg, _ = hub.latest()
+            if not jpeg:
+                self.send_response(503)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b"No frame yet\n")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Content-Length", str(len(jpeg)))
+            self._add_cors_headers()
+            self.end_headers()
+            self.wfile.write(jpeg)
+
+        def _handle_raw_frame(self) -> None:
+            source = raw_hub if raw_hub is not None else hub
+            jpeg, _ = source.latest()
             if not jpeg:
                 self.send_response(503)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")

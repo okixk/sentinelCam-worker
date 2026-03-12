@@ -1,0 +1,18 @@
+services:
+  worker:
+    build: .
+    ports:
+      - "8080:8080"
+      - "50000-51000:50000-51000/udp"
+    environment:
+      - WEB_AUTH_TOKEN=${WORKER_TOKEN:-}
+      - WEB_ALLOWED_ORIGINS=http://localhost:3000,http://web:3000
+    devices:
+      - /dev/video0:/dev/video0  # Webcam passthrough (Linux)
+    command: ["--source", "0", "--stream", "auto"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

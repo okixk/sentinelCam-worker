@@ -1280,6 +1280,9 @@ def main():
 
     if web_enabled:
         hub = FrameHub(jpeg_quality=args.jpeg_quality)
+        raw_frame_hub = FrameHub(jpeg_quality=args.jpeg_quality)
+    else:
+        raw_frame_hub = None
 
     if window_enabled:
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -1555,6 +1558,10 @@ def main():
                 # so it becomes part of the raw source before any YOLO processing.
                 capture_stamp = time.strftime("%Y-%m-%d %H:%M:%S")
                 draw_top_right_label(frame, capture_stamp, y=25, pad=10)
+
+                # Save raw frame (with timestamp, without YOLO annotations) for /frame-raw.jpg
+                if raw_frame_hub is not None:
+                    raw_frame_hub.update(frame)
 
                 # Stream-only mode: no model inference, no overlay (raw frames only)
                 if not inference_enabled:
@@ -1925,6 +1932,7 @@ def main():
                         ice_port_max=int(args.webrtc_port_max),
                         use_gpu=bool(int(args.webrtc_gpu)),
                         use_frame_sharing=bool(int(args.webrtc_frame_sharing)),
+                        raw_hub=raw_frame_hub,
                     )
                 else:
                     if requested_mode == "auto" and run_webrtc_server is None:
@@ -1937,6 +1945,7 @@ def main():
                         control=ControlAPI(get_state=_get_state, command=_send_cmd),
                         stop_event=stop_event,
                         security=security,
+                        raw_hub=raw_frame_hub,
                     )
             except KeyboardInterrupt:
                 pass

@@ -20,7 +20,8 @@ It captures a video source, runs object detection and optional pose inference wi
   - `GET /health`
   - `POST /api/webrtc/offer` when WebRTC is enabled
   - `GET /stream.mjpg` as MJPEG output and fallback
-  - `GET /frame.jpg` for the latest snapshot
+  - `GET /frame.jpg` for the latest snapshot (with YOLO overlay)
+  - `GET /frame-raw.jpg` for the latest snapshot without YOLO overlay
 
 ## Where this repo fits
 
@@ -218,6 +219,37 @@ Useful security-related settings:
 - `run.sh` - Linux/macOS launcher
 - `run.bat` - Windows launcher
 - `webcam.properties` - shared launcher defaults
+
+## Docker
+
+### Build
+
+```bash
+docker build -t sentinelcam-worker .
+```
+
+### Run (with webcam, Linux)
+
+```bash
+docker run --rm -p 8080:8080 --device /dev/video0 sentinelcam-worker --source 0
+```
+
+### Run (with remote stream)
+
+```bash
+docker run --rm -p 8080:8080 sentinelcam-worker --source http://HOST:PORT/stream.mjpg
+```
+
+### Environment Variables
+
+- `WEB_AUTH_TOKEN` — Bearer token for API authentication
+- `WEB_ALLOWED_ORIGINS` — Comma-separated CORS origin whitelist
+
+### Docker Compose
+
+```bash
+docker compose -f docker-compose.worker.yml up
+```
 
 ## Notes
 
