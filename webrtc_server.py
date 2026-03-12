@@ -9,13 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import secrets
 import socket
 import time
 from fractions import Fraction
 from typing import Any, Dict, Optional, Set
-from urllib.parse import urlparse
-
 import fractions
 import logging
 import threading
@@ -26,7 +23,15 @@ from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription, Video
 from av import VideoFrame
 import av
 
-from stream_server import ControlAPI, FrameHub, SecurityConfig
+from stream_server import FrameHub
+from security import (
+    ControlAPI,
+    SecurityConfig,
+    check_bearer_token,
+    is_loopback_bind,
+    is_origin_allowed,
+    parse_origin,
+)
 
 _logger = logging.getLogger("sentinelCam.webrtc")
 
@@ -574,50 +579,21 @@ TEST_PAGE_HTML = """<!doctype html>
 
 
 def _request_origin(request: web.Request) -> str:
-    origin = (request.headers.get("Origin", "") or "").strip()
-    if origin:
-        return origin.rstrip("/")
-    referer = (request.headers.get("Referer", "") or "").strip()
-    if not referer:
-        return ""
-    parsed = urlparse(referer)
-    if not parsed.scheme or not parsed.netloc:
-        return ""
-    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
-
-
-def _same_origin(request: web.Request, origin: str) -> bool:
-    if not origin:
-        return False
-    host = (request.headers.get("Host", "") or request.host or "").strip()
-    if not host:
-        return False
-    forwarded_proto = (request.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower()
-    schemes = [forwarded_proto] if forwarded_proto in ("http", "https") else [request.scheme or "http"]
-    for scheme in schemes:
-        if origin == f"{scheme}://{host}":
-            return True
-    return False
-
-
-def _local_origin_allowed(origin: str, loopback_bind: bool) -> bool:
-    if not loopback_bind:
-        return False
-    if origin == "null":
-        return True
-    parsed = urlparse(origin)
-    host = (parsed.hostname or "").strip().lower()
-    return host in ("127.0.0.1", "localhost", "::1")
+    return parse_origin(
+        request.headers.get("Origin", "") or "",
+        request.headers.get("Referer", "") or "",
+    )
 
 
 def _origin_allowed(request: web.Request, origin: str, security: SecurityConfig, loopback_bind: bool) -> bool:
-    if not origin:
-        return False
-    if _same_origin(request, origin):
-        return True
-    if _local_origin_allowed(origin, loopback_bind):
-        return True
-    return origin in security.allowed_origins
+    return is_origin_allowed(
+        origin,
+        host_header=(request.headers.get("Host", "") or request.host or "").strip(),
+        loopback_bind=loopback_bind,
+        allowed_origins=security.allowed_origins,
+        forwarded_proto=(request.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower(),
+        default_scheme=request.scheme or "http",
+    )
 
 
 def _apply_common_headers(response: web.StreamResponse) -> None:
@@ -676,21 +652,11 @@ def _plain_response(
 
 
 def _is_authenticated(request: web.Request, security: SecurityConfig) -> bool:
-    expected = security.auth_token
-    if not expected:
-        return True
-
-    authz = (request.headers.get("Authorization", "") or "").strip()
-    if authz.lower().startswith("bearer "):
-        token = authz[7:].strip()
-        if token and secrets.compare_digest(token, expected):
-            return True
-
-    header_token = (request.headers.get("X-SentinelCam-Token", "") or "").strip()
-    if header_token and secrets.compare_digest(header_token, expected):
-        return True
-
-    return False
+    return check_bearer_token(
+        auth_header=request.headers.get("Authorization", "") or "",
+        custom_token_header=request.headers.get("X-SentinelCam-Token", "") or "",
+        expected=security.auth_token,
+    )
 
 
 def _check_origin_and_auth(
@@ -818,8 +784,7 @@ async def _run_webrtc_server(
 ) -> None:
     pcs: Set[RTCPeerConnection] = set()
     boundary = "frame"
-    bind_host = (host or "").strip().lower()
-    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "")
+    loopback_bind = is_loopback_bind(host)
 
     if int(ice_port_min) > 0 and int(ice_port_max) >= int(ice_port_min):
         _configure_ice_port_range(int(ice_port_min), int(ice_port_max))
@@ -856,7 +821,7 @@ async def _run_webrtc_server(
         ):
             return _plain_response(request, security, loopback_bind, "Not Found\n", status=404)
         origin = _request_origin(request)
-        if not _origin_allowed(request, origin, security, loopback_bind):
+        if origin and not _origin_allowed(request, origin, security, loopback_bind):
             return _json_response(request, security, loopback_bind, {"ok": False, "error": "origin not allowed"}, status=403)
         response = web.Response(status=204)
         _apply_common_headers(response)
@@ -960,11 +925,13 @@ async def _run_webrtc_server(
 
         pc = RTCPeerConnection()
         pcs.add(pc)
+        pc_creation_times[pc] = asyncio.get_event_loop().time()
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
             if pc.connectionState in ("failed", "closed", "disconnected"):
                 pcs.discard(pc)
+                pc_creation_times.pop(pc, None)
                 await pc.close()
 
         if shared_encoder is not None:
@@ -982,6 +949,7 @@ async def _run_webrtc_server(
                 asyncio.create_task(_apply_target_bitrate(transceiver.sender, int(target_bitrate_kbps) * 1000))
         except Exception as exc:
             pcs.discard(pc)
+            pc_creation_times.pop(pc, None)
             try:
                 await pc.close()
             except Exception:
@@ -1112,15 +1080,6 @@ async def _run_webrtc_server(
     # Periodically clean up stalled peer connections
     pc_creation_times: Dict[RTCPeerConnection, float] = {}
 
-    _orig_pcs_add = pcs.add
-
-    def _tracked_add(pc: RTCPeerConnection) -> None:
-        _orig_pcs_add(pc)
-        pc_creation_times[pc] = asyncio.get_event_loop().time()
-
-    # Monkey-patch pcs.add so creation time is tracked automatically
-    pcs.add = _tracked_add  # type: ignore[assignment]
-
     async def _cleanup_stalled_pcs() -> None:
         while True:
             await asyncio.sleep(30)
@@ -1192,7 +1151,7 @@ def run_webrtc_server(
         enc_name, enc_opts, enc_label, enc_pix_fmt = _detect_best_h264_encoder()
     else:
         enc_name, enc_opts, enc_label, enc_pix_fmt = "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
-    print(f"WebRTC H.264 encoder: {enc_label}")
+    _logger.info("WebRTC H.264 encoder: %s", enc_label)
 
     # Warn if the user selected a codec that aiortc likely doesn't support
     _user_codec = (codec_preference or "auto").strip().lower()
@@ -1203,8 +1162,10 @@ def run_webrtc_server(
             _mime_map = {"vp9": "video/VP9", "av1": "video/AV1"}
             _wanted = _mime_map.get(_user_codec, f"video/{_user_codec}")
             if _wanted not in _supported:
-                print(f"WARNING: Requested codec '{_user_codec}' is not supported by aiortc. "
-                      f"Available: {', '.join(sorted(_supported))}. Falling back to default.")
+                _logger.warning(
+                    "Requested codec '%s' is not supported by aiortc. Available: %s. Falling back to default.",
+                    _user_codec, ", ".join(sorted(_supported)),
+                )
         except Exception:
             pass
 

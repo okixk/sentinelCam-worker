@@ -34,7 +34,8 @@ from ultralytics import YOLO
 
 # stream_server lives in THIS worker repo.
 # It exposes only the stream + JSON APIs; the actual website lives in sentinelCam-web.
-from stream_server import FrameHub, ControlAPI, SecurityConfig, run_mjpeg_server
+from stream_server import FrameHub, run_mjpeg_server
+from security import ControlAPI, SecurityConfig
 webrtc_import_error = None
 try:
     from webrtc_server import run_webrtc_server
@@ -685,6 +686,29 @@ def _apply_stream_quality_profile(args: argparse.Namespace, argv: List[str]) -> 
     return profile_name
 
 
+# ---------------------------------------------------------------------------
+#  Module-level constants for detection thresholds
+# ---------------------------------------------------------------------------
+
+# Speed thresholds (pixels/second) for classifying person movement
+WALK_PPS = 60.0     # Speed above which a person is considered "walking"
+RUN_PPS = 160.0     # Speed above which a person is considered "running"
+STILL_PPS = 25.0    # Speed below which a person is considered "still"
+
+# Fallback sitting heuristic (used when pose keypoints are unavailable)
+SIT_AR_MAX = 1.45       # Max bounding-box aspect ratio (h/w) for sitting
+SIT_H_FRAC_MAX = 0.55   # Max bbox height as fraction of frame height for sitting
+
+# Minimum IoU to match a pose detection to a tracked person
+POSE_IOU_THRESHOLD = 0.30
+
+# Regex for normalizing web command names
+_CMD_WHITESPACE_RE = re.compile(r"[\s\-]+")
+_CMD_UNDERSCORES_RE = re.compile(r"_+")
+
+_log = logging.getLogger("sentinelCam.worker")
+
+
 def main():
     ap = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -946,24 +970,24 @@ def main():
     bind_host = (args.host or "").strip().lower()
     public_bind = bind_host not in ("127.0.0.1", "localhost", "::1", "")
     if public_bind and not web_auth_token:
-        print(
-            "WARNING: Web stream/API is bound to a non-local interface without --web-auth-token. "
+        _log.warning(
+            "Web stream/API is bound to a non-local interface without --web-auth-token. "
             "Anyone who can reach the port can watch the stream and send commands."
         )
     if public_bind and not allowed_web_origins:
-        print(
-            "Note: Browser CORS is disabled by default. Use a reverse proxy for the HTML server, "
+        _log.info(
+            "Browser CORS is disabled by default. Use a reverse proxy for the HTML server, "
             "or explicitly allow trusted origins with --web-allow-origin."
         )
     if allowed_web_origins and not web_auth_token:
-        print("WARNING: Cross-origin browser access is enabled without --web-auth-token.")
+        _log.warning("Cross-origin browser access is enabled without --web-auth-token.")
     if web_auth_token and len(web_auth_token) < 16:
         if public_bind:
             raise SystemExit(
                 "ERROR: --web-auth-token must be at least 16 characters when binding to a public interface. "
                 "Use a longer token or bind to 127.0.0.1."
             )
-        print("WARNING: --web-auth-token is short. Use at least 16 random characters.")
+        _log.warning("--web-auth-token is short. Use at least 16 random characters.")
 
     requested_stream_mode = (args.stream or "auto").strip().lower()
     if bool(getattr(args, "web", False)) and requested_stream_mode == "webrtc" and run_webrtc_server is None:
@@ -971,7 +995,7 @@ def main():
             f"WebRTC support is not available ({webrtc_import_error}). Install aiohttp, aiortc and av, or run with --stream mjpeg."
         )
     if bool(getattr(args, "web", False)) and requested_stream_mode == "auto" and run_webrtc_server is None:
-        print("Note: WebRTC dependencies are not installed; --stream auto will fall back to MJPEG.")
+        _log.info("WebRTC dependencies are not installed; --stream auto will fall back to MJPEG.")
 
     presets = build_presets()
     if args.list_presets:
@@ -987,9 +1011,9 @@ def main():
 
     device = resolve_device(args.device)
     if device == "cpu":
-        print("Device: cpu")
+        _log.info("Device: cpu")
     else:
-        print(f"Device: {device} (CUDA available={_cuda_available()})")
+        _log.info("Device: %s (CUDA available=%s)", device, _cuda_available())
 
     # Choose preset (unless user forces --model)
     active_preset_name, active_preset = pick_preset(args.preset, device, presets)
@@ -1093,15 +1117,6 @@ def main():
     face_point: Dict[int, Optional[Tuple[float, float]]] = {}
     pose_cache: Dict[int, Tuple[np.ndarray, np.ndarray, int]] = {}
 
-    # Speed thresholds (pixels/sec)
-    WALK_PPS = 60.0
-    RUN_PPS = 160.0
-    STILL_PPS = 25.0
-
-    # Without pose: sitting heuristic via aspect ratio + stillness (very rough)
-    SIT_AR_MAX = 1.45
-    SIT_H_FRAC_MAX = 0.55
-
     frame_count = 0
     last_fps_time = time.time()
     fps_smooth = 0.0
@@ -1158,8 +1173,8 @@ def main():
         cmd = str(raw_cmd or "").strip().lower()
         if not cmd:
             return ""
-        cmd = re.sub(r"[\s\-]+", "_", cmd)
-        cmd = re.sub(r"_+", "_", cmd).strip("_")
+        cmd = _CMD_WHITESPACE_RE.sub("_", cmd)
+        cmd = _CMD_UNDERSCORES_RE.sub("_", cmd).strip("_")
 
         aliases = {
             "next_model": "next",
@@ -1308,7 +1323,7 @@ def main():
             worker_alive=True,
         )
 
-        print(f"Switched preset -> {active_preset_name} (det={det_weights}, pose={pose_weights})")
+        _log.info("Switched preset -> %s (det=%s, pose=%s)", active_preset_name, det_weights, pose_weights)
 
 
     def _set_pose(enable: bool) -> None:
@@ -1329,14 +1344,14 @@ def main():
                 pose_model = YOLO(pw)
                 pose_weights = _promote_weight_to_runtime(pw)
             except (Exception, SystemExit) as e:
-                print(f"Could not enable pose: {type(e).__name__}: {e}")
+                _log.error("Could not enable pose: %s: %s", type(e).__name__, e)
                 pose_enabled = False
 
         _update_state(
             pose_enabled=pose_enabled,
             pose=os.path.basename(str(pose_weights)) if pose_weights else None,
         )
-        print(f"Pose -> {'on' if pose_enabled else 'off'}")
+        _log.info("Pose -> %s", "on" if pose_enabled else "off")
 
 
     def _toggle_pose():
@@ -1355,7 +1370,7 @@ def main():
         _saved_overlay_enabled = bool(enable)
         overlay_enabled = bool(enable) if inference_enabled else False
         _update_state(overlay_enabled=overlay_enabled)
-        print(f"Overlay -> {'on' if overlay_enabled else 'off'}")
+        _log.info("Overlay -> %s", "on" if overlay_enabled else "off")
 
 
     def _set_inference(enable: bool) -> None:
@@ -1369,7 +1384,7 @@ def main():
             inference_enabled = True
             overlay_enabled = bool(_saved_overlay_enabled)
             _update_state(inference_enabled=True, overlay_enabled=overlay_enabled)
-            print("Inference -> on")
+            _log.info("Inference -> on")
             if _saved_pose_enabled and not pose_enabled:
                 _set_pose(True)
             return
@@ -1382,7 +1397,7 @@ def main():
             _set_pose(False)
         _clear_runtime_tracking()
         _update_state(inference_enabled=False, overlay_enabled=False, pose_enabled=pose_enabled)
-        print("Inference -> off (stream-only)")
+        _log.info("Inference -> off (stream-only)")
 
 
 
@@ -1440,7 +1455,7 @@ def main():
                                 last_error_ts=time.time(),
                                 worker_alive=True,
                             )
-                            print(f"Model switch failed (next): {e}")
+                            _log.error("Model switch failed (next): %s", e)
 
                     elif cmd in ("prev", "previous", "n") and len(filtered_cycle) > 1:
                         try:
@@ -1455,7 +1470,7 @@ def main():
                                 last_error_ts=time.time(),
                                 worker_alive=True,
                             )
-                            print(f"Model switch failed (prev): {e}")
+                            _log.error("Model switch failed (prev): %s", e)
 
                     elif cmd in ("toggle_pose", "pose", "p"):
                         # Pose changes only make sense while inference is enabled.
@@ -1703,7 +1718,7 @@ def main():
                                     best_i = v
                                     best_j = j
 
-                            if best_j >= 0 and best_i >= 0.30:
+                            if best_j >= 0 and best_i >= POSE_IOU_THRESHOLD:
                                 box_h = max(1.0, (y2 - y1))
 
                                 s = is_sitting_from_kpts(
@@ -1848,11 +1863,7 @@ def main():
                 last_error_ts=time.time(),
                 worker_alive=False,
             )
-            print(f"Worker crashed: {e}")
-            try:
-                traceback.print_exc()
-            except Exception:
-                pass
+            _log.exception("Worker crashed: %s", e)
         finally:
             _update_state(busy=False, busy_text=None, worker_alive=False)
 
@@ -1882,25 +1893,25 @@ def main():
                 max_cmd_bytes=int(args.web_max_cmd_bytes),
             )
             try:
-                print(
-                    f"Stream quality: {stream_quality_name}  capture={int(args.width)}x{int(args.height)}  "
-                    f"jpeg={int(args.jpeg_quality)}"
+                _log.info(
+                    "Stream quality: %s  capture=%dx%d  jpeg=%d",
+                    stream_quality_name, int(args.width), int(args.height), int(args.jpeg_quality),
                 )
                 if mode == "webrtc":
                     if run_webrtc_server is None:
                         raise SystemExit(
                             f"WebRTC support is not available ({webrtc_import_error}). Install aiohttp, aiortc and av."
                         )
-                    print(f"Stream (WebRTC signaling): http://{display_host}:{args.port}/api/webrtc/offer")
-                    print(f"Stream (MJPEG fallback): http://{display_host}:{args.port}/stream.mjpg")
-                    print(f"WebRTC test page: http://{display_host}:{args.port}/webrtc-test")
-                    print(f"State API: http://{display_host}:{args.port}/api/state")
+                    _log.info("Stream (WebRTC signaling): http://%s:%s/api/webrtc/offer", display_host, args.port)
+                    _log.info("Stream (MJPEG fallback): http://%s:%s/stream.mjpg", display_host, args.port)
+                    _log.info("WebRTC test page: http://%s:%s/webrtc-test", display_host, args.port)
+                    _log.info("State API: http://%s:%s/api/state", display_host, args.port)
                     if int(args.webrtc_bitrate) > 0:
-                        print(f"WebRTC target bitrate: {int(args.webrtc_bitrate)} kbps")
+                        _log.info("WebRTC target bitrate: %d kbps", int(args.webrtc_bitrate))
                     else:
-                        print("WebRTC target bitrate: auto")
+                        _log.info("WebRTC target bitrate: auto")
                     if int(args.webrtc_port_min) > 0:
-                        print(f"WebRTC ICE port range: {int(args.webrtc_port_min)}-{int(args.webrtc_port_max)}")
+                        _log.info("WebRTC ICE port range: %d-%d", int(args.webrtc_port_min), int(args.webrtc_port_max))
                     run_webrtc_server(
                         hub,
                         host=args.host,
@@ -1917,8 +1928,8 @@ def main():
                     )
                 else:
                     if requested_mode == "auto" and run_webrtc_server is None:
-                        print("Stream mode auto -> MJPEG (WebRTC dependencies not available)")
-                    print(f"Stream (MJPEG): http://{display_host}:{args.port}/stream.mjpg")
+                        _log.info("Stream mode auto -> MJPEG (WebRTC dependencies not available)")
+                    _log.info("Stream (MJPEG): http://%s:%s/stream.mjpg", display_host, args.port)
                     run_mjpeg_server(
                         hub,
                         host=args.host,
@@ -2000,7 +2011,7 @@ def main():
                 if shutdown_done.wait(timeout=10.0):
                     return
                 try:
-                    print("\n[watchdog] Shutdown appears stuck -> forcing exit")
+                    _log.warning("Shutdown appears stuck -> forcing exit")
                 except Exception:
                     pass
                 try:
@@ -2044,4 +2055,9 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
     main()

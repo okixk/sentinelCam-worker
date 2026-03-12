@@ -16,30 +16,23 @@ Everything else: 404.
 from __future__ import annotations
 
 import json
-import secrets
 import threading
 import time
-from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import cv2  # type: ignore
 import numpy as np  # type: ignore
 
-
-@dataclass
-class ControlAPI:
-    get_state: Callable[[], Dict[str, Any]]
-    command: Callable[[Any], None]
-
-
-@dataclass(frozen=True)
-class SecurityConfig:
-    auth_token: str = ""
-    allowed_origins: Tuple[str, ...] = ()
-    max_cmd_bytes: int = 8192
-    allow_unauthenticated_health: bool = True
+from security import (
+    ControlAPI,
+    SecurityConfig,
+    check_bearer_token,
+    is_loopback_bind,
+    is_origin_allowed,
+    parse_origin,
+)
 
 
 class FrameHub:
@@ -109,8 +102,7 @@ def run_mjpeg_server(
 ) -> None:
     boundary = "frame"
     security = security or SecurityConfig()
-    bind_host = (host or "").strip().lower()
-    loopback_bind = bind_host in ("127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "")
+    loopback_bind = is_loopback_bind(host)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "sentinelCam-worker"
@@ -127,47 +119,19 @@ def run_mjpeg_server(
             super().end_headers()
 
         def _request_origin(self) -> str:
-            origin = (self.headers.get("Origin", "") or "").strip()
-            if origin:
-                return origin.rstrip("/")
-            referer = (self.headers.get("Referer", "") or "").strip()
-            if not referer:
-                return ""
-            parsed = urlparse(referer)
-            if not parsed.scheme or not parsed.netloc:
-                return ""
-            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
-
-        def _same_origin(self, origin: str) -> bool:
-            if not origin:
-                return False
-            host = (self.headers.get("Host", "") or "").strip()
-            if not host:
-                return False
-            forwarded_proto = (self.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower()
-            schemes = [forwarded_proto] if forwarded_proto in ("http", "https") else ["http"]
-            for scheme in schemes:
-                if origin == f"{scheme}://{host}":
-                    return True
-            return False
-
-        def _local_origin_allowed(self, origin: str) -> bool:
-            if not loopback_bind:
-                return False
-            if origin == "null":
-                return True
-            parsed = urlparse(origin)
-            host = (parsed.hostname or "").strip().lower()
-            return host in ("127.0.0.1", "localhost", "::1")
+            return parse_origin(
+                self.headers.get("Origin", "") or "",
+                self.headers.get("Referer", "") or "",
+            )
 
         def _origin_allowed(self, origin: str) -> bool:
-            if not origin:
-                return False
-            if self._same_origin(origin):
-                return True
-            if self._local_origin_allowed(origin):
-                return True
-            return origin in security.allowed_origins
+            return is_origin_allowed(
+                origin,
+                host_header=(self.headers.get("Host", "") or "").strip(),
+                loopback_bind=loopback_bind,
+                allowed_origins=security.allowed_origins,
+                forwarded_proto=(self.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower(),
+            )
 
         def _add_cors_headers(self) -> bool:
             origin = self._request_origin()
@@ -202,21 +166,11 @@ def run_mjpeg_server(
             self.wfile.write(body)
 
         def _is_authenticated(self) -> bool:
-            expected = security.auth_token
-            if not expected:
-                return True
-
-            authz = (self.headers.get("Authorization", "") or "").strip()
-            if authz.lower().startswith("bearer "):
-                token = authz[7:].strip()
-                if token and secrets.compare_digest(token, expected):
-                    return True
-
-            header_token = (self.headers.get("X-SentinelCam-Token", "") or "").strip()
-            if header_token and secrets.compare_digest(header_token, expected):
-                return True
-
-            return False
+            return check_bearer_token(
+                auth_header=self.headers.get("Authorization", "") or "",
+                custom_token_header=self.headers.get("X-SentinelCam-Token", "") or "",
+                expected=security.auth_token,
+            )
 
         def _require_auth(self) -> bool:
             if self._is_authenticated():
@@ -258,7 +212,8 @@ def run_mjpeg_server(
             ):
                 self._reject(404, "Not Found\n")
                 return
-            if not self._origin_allowed(self._request_origin()):
+            origin = self._request_origin()
+            if origin and not self._origin_allowed(origin):
                 self._reject_json(403, {"ok": False, "error": "origin not allowed"})
                 return
             self.send_response(204)
