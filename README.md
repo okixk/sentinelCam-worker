@@ -224,6 +224,7 @@ Useful security-related settings:
 - `webcam.properties` - shared launcher defaults
 - `Dockerfile` - multi-stage Docker build (Python 3.12-slim)
 - `docker-compose.worker.yml` - Docker Compose config
+- `docker-compose.worker-cam.yml` - optional Linux webcam passthrough override
 - `.dockerignore` - excludes `.git`, caches, and non-runtime files from the image
 - `requirements.txt` - Python dependencies for Docker and pip installs
 
@@ -293,7 +294,36 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 docker compose -f docker-compose.worker.yml up
 ```
 
-The compose file maps port `8080` and the WebRTC UDP range, passes through `/dev/video0` (Linux), and supports `WORKER_TOKEN` as an environment variable for auth.
+The base compose file is now cross-platform:
+
+- default source: `testsrc`
+- works on Linux, macOS, and Windows
+- maps port `8080` and the WebRTC UDP range
+- supports `WORKER_TOKEN` as an environment variable for auth
+
+This gives you the same smoke-test startup path everywhere:
+
+```bash
+docker compose -f docker-compose.worker.yml up -d --build
+```
+
+Use a remote stream on any platform:
+
+```bash
+WORKER_SOURCE=rtsp://HOST:PORT/stream docker compose -f docker-compose.worker.yml up -d --build
+```
+
+Use a real webcam on Linux only:
+
+```bash
+docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
+```
+
+Use a different Linux camera device:
+
+```bash
+WORKER_VIDEO_DEVICE=/dev/video2 docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
+```
 
 ## Notes
 

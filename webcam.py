@@ -197,12 +197,114 @@ def draw_top_right_label(frame, text, y=25, pad=10):
     draw_label(frame, x, y, text)
 
 
+class SyntheticCapture:
+    """Small OpenCV-like capture source for cross-platform testing.
+
+    It lets Docker and local setups boot without a physical camera by generating
+    animated frames in-process.
+    """
+
+    def __init__(self, width: int, height: int, fps: float = 30.0):
+        self.width = max(160, int(width))
+        self.height = max(120, int(height))
+        self.fps = max(1.0, float(fps))
+        self._opened = True
+        self._started = time.time()
+        self._frame_index = 0
+
+    def isOpened(self) -> bool:  # noqa: N802
+        return self._opened
+
+    def release(self) -> None:
+        self._opened = False
+
+    def set(self, prop_id, value) -> bool:  # noqa: ANN001
+        try:
+            if int(prop_id) == int(cv2.CAP_PROP_FRAME_WIDTH):
+                self.width = max(160, int(value))
+                return True
+            if int(prop_id) == int(cv2.CAP_PROP_FRAME_HEIGHT):
+                self.height = max(120, int(value))
+                return True
+        except Exception:
+            return False
+        return True
+
+    def read(self):  # noqa: ANN201
+        if not self._opened:
+            return False, None
+
+        frame_period = 1.0 / self.fps
+        due_at = self._started + (self._frame_index * frame_period)
+        remaining = due_at - time.time()
+        if remaining > 0:
+            time.sleep(min(remaining, frame_period))
+
+        elapsed = max(0.0, time.time() - self._started)
+        self._frame_index += 1
+
+        x_grad = np.linspace(30, 130, self.width, dtype=np.uint8)
+        y_grad = np.linspace(20, 90, self.height, dtype=np.uint8)
+        frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        frame[:, :, 0] = x_grad
+        frame[:, :, 1] = y_grad[:, None]
+        frame[:, :, 2] = 45
+
+        cx = int((math.sin(elapsed * 1.1) * 0.4 + 0.5) * max(1, self.width - 1))
+        cy = int((math.cos(elapsed * 0.9) * 0.35 + 0.5) * max(1, self.height - 1))
+        radius = max(18, min(self.width, self.height) // 10)
+        cv2.circle(frame, (cx, cy), radius, (0, 215, 255), -1)
+
+        box_w = max(80, self.width // 5)
+        box_h = max(50, self.height // 6)
+        rect_x = int((math.sin(elapsed * 0.6 + 1.0) * 0.35 + 0.5) * max(1, self.width - box_w))
+        rect_y = int((math.sin(elapsed * 0.8 + 0.4) * 0.3 + 0.5) * max(1, self.height - box_h))
+        cv2.rectangle(frame, (rect_x, rect_y), (rect_x + box_w, rect_y + box_h), (255, 120, 0), -1)
+
+        cv2.putText(
+            frame,
+            "sentinelCam testsrc",
+            (18, 34),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame,
+            f"{self.width}x{self.height}  frame={self._frame_index}",
+            (18, 64),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (240, 240, 240),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame,
+            "Use WORKER_SOURCE=testsrc for Docker smoke tests",
+            (18, max(92, self.height - 26)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (230, 230, 230),
+            1,
+            cv2.LINE_AA,
+        )
+        return True, frame
+
+
 def _open_capture(source: str, width: int, height: int):
     """OpenCV VideoCapture opener.
 
     - If source is a digit string -> webcam index
+    - testsrc/synthetic/dummy -> generated in-process frames
     - Otherwise -> URL/file/rtsp/http or /dev/videoX path
     """
+    normalized_source = str(source or "").strip().lower()
+    if normalized_source in ("testsrc", "synthetic", "dummy"):
+        return SyntheticCapture(width, height)
+
     if isinstance(source, str) and source.isdigit():
         cam_index = int(source)
         if sys.platform.startswith("win"):
@@ -723,7 +825,7 @@ def main():
         "--source",
         type=str,
         default=None,
-        help='Video source: webcam index (e.g. "0") OR URL/file (e.g. http://.../stream.mjpg or /dev/video42)',
+        help='Video source: webcam index (e.g. "0"), testsrc, or URL/file (e.g. http://.../stream.mjpg or /dev/video42)',
     )
     ap.add_argument("--cam", type=int, default=0, help="Webcam index (used when --source not set)")
 
