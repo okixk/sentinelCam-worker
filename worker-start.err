@@ -1,0 +1,859 @@
+09:00:56 [sentinelCam.worker] INFO: Device: cpu
+09:01:02 [sentinelCam.worker] INFO: Stream quality: high  capture=1280x720  jpeg=88
+09:01:02 [sentinelCam.worker] INFO: Stream (WebRTC signaling): http://localhost:8080/api/webrtc/offer
+09:01:02 [sentinelCam.worker] INFO: Stream (MJPEG fallback): http://localhost:8080/stream.mjpg
+09:01:02 [sentinelCam.worker] INFO: WebRTC test page: http://localhost:8080/webrtc-test
+09:01:02 [sentinelCam.worker] INFO: State API: http://localhost:8080/api/state
+09:01:02 [sentinelCam.worker] INFO: WebRTC target bitrate: 2500 kbps
+09:01:02 [sentinelCam.worker] INFO: WebRTC ICE port range: 50000-51000
+09:01:02 [libav.h264_nvenc] ERROR: Cannot load nvcuda.dll
+09:01:02 [libav.AMF] ERROR: DLL amfrt64.dll failed to open
+09:01:02 [libav.h264_amf] ERROR: Failed to create  hardware device context (AMF) : Unknown error occurred
+09:01:02 [sentinelCam.webrtc] INFO: H.264 encoder detected: h264_qsv (Intel QSV)
+09:01:02 [sentinelCam.webrtc] INFO: WebRTC H.264 encoder: Intel QSV
+09:01:02 [sentinelCam.webrtc] INFO: aiortc version: 1.14.0
+09:01:02 [sentinelCam.webrtc] INFO: Patched aiortc H264Encoder to use h264_qsv (pix_fmt=nv12)
+09:03:45 [aioice.ice] INFO: Connection(0) Remote candidate "8df09f3b-75a5-4168-b594-3f9639153bf0.local" could not be resolved
+09:03:46 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:03:46 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:03:46 [aioice.ice] INFO: Connection(0) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:03:46 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:03:47 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:03:47 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:03:47 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:03:47 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:03:48 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:03:48 [aioice.ice] INFO: Connection(0) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 53804)) State.FROZEN -> State.WAITING
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 53804)) State.FROZEN -> State.WAITING
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 53804)) State.FROZEN -> State.WAITING
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 53804)) State.FROZEN -> State.WAITING
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 53804)) State.FROZEN -> State.WAITING
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 53804)) State.WAITING -> State.IN_PROGRESS
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 53804)) State.WAITING -> State.IN_PROGRESS
+09:03:53 [aioice.ice] INFO: Connection(0) Discovered peer reflexive candidate Candidate(pZSnj648FY 1 udp 1845501695 172.27.176.1 53804 typ prflx)
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 53804)) State.WAITING -> State.IN_PROGRESS
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 53804)) State.IN_PROGRESS -> State.SUCCEEDED
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 53804)) State.WAITING -> State.FAILED
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 53804)) State.WAITING -> State.FAILED
+09:03:53 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 53804)) State.WAITING -> State.FAILED
+09:03:53 [aioice.ice] INFO: Connection(0) ICE completed
+09:03:55 [aioice.ice] INFO: Connection(0) Discovered peer reflexive candidate Candidate(fAPr7rd5Rt 1 udp 1845501695 192.168.95.1 53804 typ prflx)
+09:03:55 [aioice.ice] INFO: Connection(0) Discovered peer reflexive candidate Candidate(nzxlMF3Xnj 1 udp 1845501695 192.168.187.1 53804 typ prflx)
+09:03:55 [aioice.ice] INFO: Connection(0) Discovered peer reflexive candidate Candidate(pvVQO70iTH 1 udp 1845501695 10.167.6.38 53804 typ prflx)
+09:03:55 [aioice.ice] INFO: Connection(0) Discovered peer reflexive candidate Candidate(fXCl4DfuiR 1 udp 1845501695 172.24.240.1 53804 typ prflx)
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 53804)) State.WAITING -> State.FAILED
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 53804)) State.WAITING -> State.FAILED
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 53804)) State.WAITING -> State.FAILED
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 53804)) State.WAITING -> State.FAILED
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 53804)) State.FAILED -> State.IN_PROGRESS
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 53804)) State.FAILED -> State.IN_PROGRESS
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 53804)) State.FAILED -> State.IN_PROGRESS
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 53804)) State.FAILED -> State.IN_PROGRESS
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 53804)) State.IN_PROGRESS -> State.SUCCEEDED
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 53804)) State.IN_PROGRESS -> State.SUCCEEDED
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 53804)) State.IN_PROGRESS -> State.SUCCEEDED
+09:03:55 [aioice.ice] INFO: Connection(0) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 53804)) State.IN_PROGRESS -> State.SUCCEEDED
+09:03:55 [sentinelCam.worker] INFO: Pose -> off
+09:03:55 [sentinelCam.worker] INFO: Inference -> off (stream-only)
+09:04:17 [sentinelCam.worker] INFO: Inference -> on
+09:04:17 [sentinelCam.worker] INFO: Pose -> on
+09:04:41 [sentinelCam.worker] INFO: Pose -> off
+09:04:41 [sentinelCam.worker] INFO: Inference -> off (stream-only)
+09:09:01 [aioice.ice] INFO: Connection(1) Remote candidate "8df09f3b-75a5-4168-b594-3f9639153bf0.local" could not be resolved
+09:09:01 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:09:01 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:09:01 [aioice.ice] INFO: Connection(1) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:09:02 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:09:02 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:09:02 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:09:02 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:09:03 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:09:03 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:09:03 [aioice.ice] INFO: Connection(1) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 65427)) State.FROZEN -> State.WAITING
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 65427)) State.FROZEN -> State.WAITING
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 65427)) State.FROZEN -> State.WAITING
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 65427)) State.FROZEN -> State.WAITING
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 65427)) State.FROZEN -> State.WAITING
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:08 [aioice.ice] INFO: Connection(1) Discovered peer reflexive candidate Candidate(32Vi453lWW 1 udp 1845501695 172.27.176.1 65427 typ prflx)
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 65427)) State.IN_PROGRESS -> State.SUCCEEDED
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 65427)) State.WAITING -> State.FAILED
+09:09:08 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 65427)) State.WAITING -> State.FAILED
+09:09:08 [aioice.ice] INFO: Connection(1) ICE completed
+09:09:09 [aioice.ice] INFO: Connection(1) Discovered peer reflexive candidate Candidate(dKXUsSWuMk 1 udp 1845501695 192.168.95.1 65427 typ prflx)
+09:09:09 [aioice.ice] INFO: Connection(1) Discovered peer reflexive candidate Candidate(PqDUxue8Nn 1 udp 1845501695 192.168.187.1 65427 typ prflx)
+09:09:09 [aioice.ice] INFO: Connection(1) Discovered peer reflexive candidate Candidate(jItxS1p4eJ 1 udp 1845501695 10.167.6.38 65427 typ prflx)
+09:09:09 [aioice.ice] INFO: Connection(1) Discovered peer reflexive candidate Candidate(EzTl4hxJCb 1 udp 1845501695 172.24.240.1 65427 typ prflx)
+09:09:09 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:09 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:09 [aioice.ice] INFO: Connection(1) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:09 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 65427)) State.WAITING -> State.IN_PROGRESS
+09:09:11 [aioice.ice] INFO: Connection(1) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 65427)) State.IN_PROGRESS -> State.SUCCEEDED
+09:09:11 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 65427)) State.IN_PROGRESS -> State.SUCCEEDED
+09:09:11 [aioice.ice] INFO: Connection(1) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 65427)) State.IN_PROGRESS -> State.SUCCEEDED
+09:09:11 [aioice.ice] INFO: Connection(1) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 65427)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:01 [aioice.ice] INFO: Connection(2) Remote candidate "63e8236f-4e89-413b-aa2d-eaf3c50f050f.local" could not be resolved
+09:13:01 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:13:01 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:13:02 [aioice.ice] INFO: Connection(2) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:13:02 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:13:02 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:13:02 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:13:02 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:13:02 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:13:03 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:13:03 [aioice.ice] INFO: Connection(2) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 55668)) State.FROZEN -> State.WAITING
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 55668)) State.FROZEN -> State.WAITING
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 55668)) State.FROZEN -> State.WAITING
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 55668)) State.FROZEN -> State.WAITING
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 55668)) State.FROZEN -> State.WAITING
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 55668)) State.WAITING -> State.IN_PROGRESS
+09:13:08 [aioice.ice] INFO: Connection(2) Discovered peer reflexive candidate Candidate(EBMMoESKXp 1 udp 1845501695 172.27.176.1 55668 typ prflx)
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 55668)) State.WAITING -> State.IN_PROGRESS
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 55668)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 55668)) State.WAITING -> State.FAILED
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 55668)) State.WAITING -> State.FAILED
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 55668)) State.WAITING -> State.FAILED
+09:13:08 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 55668)) State.WAITING -> State.FAILED
+09:13:08 [aioice.ice] INFO: Connection(2) ICE completed
+09:13:09 [aioice.ice] INFO: Connection(2) Discovered peer reflexive candidate Candidate(ZjC5qL24D1 1 udp 1845501695 192.168.95.1 55668 typ prflx)
+09:13:09 [aioice.ice] INFO: Connection(2) Discovered peer reflexive candidate Candidate(4jmiyJzqoN 1 udp 1845501695 192.168.187.1 55668 typ prflx)
+09:13:09 [aioice.ice] INFO: Connection(2) Discovered peer reflexive candidate Candidate(1lTGJpT5yG 1 udp 1845501695 10.167.6.38 55668 typ prflx)
+09:13:09 [aioice.ice] INFO: Connection(2) Discovered peer reflexive candidate Candidate(reL6noCW2n 1 udp 1845501695 172.24.240.1 55668 typ prflx)
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 55668)) State.WAITING -> State.FAILED
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 55668)) State.WAITING -> State.FAILED
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 55668)) State.WAITING -> State.FAILED
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 55668)) State.WAITING -> State.FAILED
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 55668)) State.FAILED -> State.IN_PROGRESS
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 55668)) State.FAILED -> State.IN_PROGRESS
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 55668)) State.FAILED -> State.IN_PROGRESS
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 55668)) State.FAILED -> State.IN_PROGRESS
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 55668)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 55668)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 55668)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:09 [aioice.ice] INFO: Connection(2) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 55668)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:35 [aioice.ice] INFO: Connection(3) Remote candidate "63e8236f-4e89-413b-aa2d-eaf3c50f050f.local" could not be resolved
+09:13:35 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:13:35 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:13:35 [aioice.ice] INFO: Connection(3) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:13:36 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:13:36 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:13:36 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:13:36 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:13:36 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:13:36 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:13:37 [aioice.ice] INFO: Connection(3) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 58457)) State.FROZEN -> State.WAITING
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 58457)) State.FROZEN -> State.WAITING
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 58457)) State.FROZEN -> State.WAITING
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 58457)) State.FROZEN -> State.WAITING
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 58457)) State.FROZEN -> State.WAITING
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 58457)) State.WAITING -> State.IN_PROGRESS
+09:13:42 [aioice.ice] INFO: Connection(3) Discovered peer reflexive candidate Candidate(8L3AFTp23a 1 udp 1845501695 172.27.176.1 58457 typ prflx)
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 58457)) State.WAITING -> State.IN_PROGRESS
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 58457)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 58457)) State.WAITING -> State.FAILED
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 58457)) State.WAITING -> State.FAILED
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 58457)) State.WAITING -> State.FAILED
+09:13:42 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 58457)) State.WAITING -> State.FAILED
+09:13:42 [aioice.ice] INFO: Connection(3) ICE completed
+09:13:43 [aioice.ice] INFO: Connection(3) Discovered peer reflexive candidate Candidate(MwkoOK87wJ 1 udp 1845501695 192.168.95.1 58457 typ prflx)
+09:13:43 [aioice.ice] INFO: Connection(3) Discovered peer reflexive candidate Candidate(1HobtIIslK 1 udp 1845501695 192.168.187.1 58457 typ prflx)
+09:13:43 [aioice.ice] INFO: Connection(3) Discovered peer reflexive candidate Candidate(lZGEEudaSf 1 udp 1845501695 10.167.6.38 58457 typ prflx)
+09:13:43 [aioice.ice] INFO: Connection(3) Discovered peer reflexive candidate Candidate(yVeNuECIdE 1 udp 1845501695 172.24.240.1 58457 typ prflx)
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 58457)) State.WAITING -> State.FAILED
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 58457)) State.WAITING -> State.FAILED
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 58457)) State.WAITING -> State.FAILED
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 58457)) State.WAITING -> State.FAILED
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 58457)) State.FAILED -> State.IN_PROGRESS
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 58457)) State.FAILED -> State.IN_PROGRESS
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 58457)) State.FAILED -> State.IN_PROGRESS
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 58457)) State.FAILED -> State.IN_PROGRESS
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 58457)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 58457)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('10.167.6.38', 50003) -> ('10.167.6.38', 58457)) State.IN_PROGRESS -> State.SUCCEEDED
+09:13:43 [aioice.ice] INFO: Connection(3) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 58457)) State.IN_PROGRESS -> State.SUCCEEDED
+09:15:24 [aioice.ice] INFO: Connection(4) Remote candidate "8b4b4382-9bde-4400-884a-9d82853bee66.local" could not be resolved
+09:15:24 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:15:25 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:15:25 [aioice.ice] INFO: Connection(4) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:15:25 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:15:25 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:15:25 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:15:26 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:15:26 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:15:26 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:15:26 [aioice.ice] INFO: Connection(4) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 57377)) State.FROZEN -> State.WAITING
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 57377)) State.FROZEN -> State.WAITING
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 57377)) State.FROZEN -> State.WAITING
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 57377)) State.FROZEN -> State.WAITING
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 57377)) State.FROZEN -> State.WAITING
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 57377)) State.WAITING -> State.IN_PROGRESS
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 57377)) State.WAITING -> State.IN_PROGRESS
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 57377)) State.WAITING -> State.IN_PROGRESS
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 57377)) State.WAITING -> State.IN_PROGRESS
+09:15:31 [aioice.ice] INFO: Connection(4) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 57377)) State.WAITING -> State.IN_PROGRESS
+09:16:08 [aioice.ice] INFO: Connection(5) Remote candidate "2ed18d14-36ac-4d1c-80f3-863a8eafdeb2.local" could not be resolved
+09:16:08 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:16:09 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:16:09 [aioice.ice] INFO: Connection(5) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:16:09 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:16:09 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:16:10 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:16:10 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:16:10 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:16:10 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:16:10 [aioice.ice] INFO: Connection(5) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.27.176.1', 50001) -> ('194.124.80.14', 52939)) State.FROZEN -> State.WAITING
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.95.1', 50000) -> ('194.124.80.14', 52939)) State.FROZEN -> State.WAITING
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.187.1', 50003) -> ('194.124.80.14', 52939)) State.FROZEN -> State.WAITING
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('10.167.6.38', 50002) -> ('194.124.80.14', 52939)) State.FROZEN -> State.WAITING
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.24.240.1', 50005) -> ('194.124.80.14', 52939)) State.FROZEN -> State.WAITING
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.27.176.1', 50001) -> ('194.124.80.14', 52939)) State.WAITING -> State.IN_PROGRESS
+09:16:15 [aioice.ice] INFO: Connection(5) Discovered peer reflexive candidate Candidate(Y74Uwy3BQt 1 udp 1845501695 172.27.176.1 52939 typ prflx)
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 52939)) State.WAITING -> State.IN_PROGRESS
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.95.1', 50000) -> ('194.124.80.14', 52939)) State.WAITING -> State.IN_PROGRESS
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 52939)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.187.1', 50003) -> ('194.124.80.14', 52939)) State.WAITING -> State.FAILED
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('10.167.6.38', 50002) -> ('194.124.80.14', 52939)) State.WAITING -> State.FAILED
+09:16:15 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.24.240.1', 50005) -> ('194.124.80.14', 52939)) State.WAITING -> State.FAILED
+09:16:15 [aioice.ice] INFO: Connection(5) ICE completed
+09:16:17 [aioice.ice] INFO: Connection(5) Discovered peer reflexive candidate Candidate(xMSDY1bohl 1 udp 1845501695 192.168.95.1 52939 typ prflx)
+09:16:17 [aioice.ice] INFO: Connection(5) Discovered peer reflexive candidate Candidate(A2Sk9HIXeL 1 udp 1845501695 192.168.187.1 52939 typ prflx)
+09:16:17 [aioice.ice] INFO: Connection(5) Discovered peer reflexive candidate Candidate(EHn61cz241 1 udp 1845501695 10.167.6.38 52939 typ prflx)
+09:16:17 [aioice.ice] INFO: Connection(5) Discovered peer reflexive candidate Candidate(gvOg6pVMya 1 udp 1845501695 172.24.240.1 52939 typ prflx)
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 52939)) State.WAITING -> State.FAILED
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 52939)) State.WAITING -> State.FAILED
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('10.167.6.38', 50002) -> ('10.167.6.38', 52939)) State.WAITING -> State.FAILED
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.24.240.1', 50005) -> ('172.24.240.1', 52939)) State.WAITING -> State.FAILED
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 52939)) State.FAILED -> State.IN_PROGRESS
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 52939)) State.FAILED -> State.IN_PROGRESS
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('10.167.6.38', 50002) -> ('10.167.6.38', 52939)) State.FAILED -> State.IN_PROGRESS
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.24.240.1', 50005) -> ('172.24.240.1', 52939)) State.FAILED -> State.IN_PROGRESS
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 52939)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 52939)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('10.167.6.38', 50002) -> ('10.167.6.38', 52939)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:17 [aioice.ice] INFO: Connection(5) Check CandidatePair(('172.24.240.1', 50005) -> ('172.24.240.1', 52939)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:31 [aioice.ice] INFO: Connection(6) Remote candidate "d25deb35-9bca-4d32-91ab-3b14b19d8668.local" could not be resolved
+09:16:31 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:16:31 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:16:31 [aioice.ice] INFO: Connection(6) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:16:31 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:16:32 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:16:32 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:16:32 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:16:32 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:16:32 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:16:32 [aioice.ice] INFO: Connection(6) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:16:35 [aioice.ice] INFO: Connection(4) Check CandidatePair(('172.27.176.1', 50000) -> ('194.124.80.14', 57377)) State.IN_PROGRESS -> State.FAILED
+09:16:35 [aioice.ice] INFO: Connection(4) Check CandidatePair(('192.168.95.1', 50001) -> ('194.124.80.14', 57377)) State.IN_PROGRESS -> State.FAILED
+09:16:35 [aioice.ice] INFO: Connection(4) Check CandidatePair(('192.168.187.1', 50002) -> ('194.124.80.14', 57377)) State.IN_PROGRESS -> State.FAILED
+09:16:35 [aioice.ice] INFO: Connection(4) Check CandidatePair(('10.167.6.38', 50003) -> ('194.124.80.14', 57377)) State.IN_PROGRESS -> State.FAILED
+09:16:35 [aioice.ice] INFO: Connection(4) Check CandidatePair(('172.24.240.1', 50004) -> ('194.124.80.14', 57377)) State.IN_PROGRESS -> State.FAILED
+09:16:35 [aioice.ice] INFO: Connection(4) ICE failed
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.27.176.1', 50001) -> ('194.124.80.14', 58520)) State.FROZEN -> State.WAITING
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.95.1', 50000) -> ('194.124.80.14', 58520)) State.FROZEN -> State.WAITING
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.187.1', 50003) -> ('194.124.80.14', 58520)) State.FROZEN -> State.WAITING
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('10.167.6.38', 50002) -> ('194.124.80.14', 58520)) State.FROZEN -> State.WAITING
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.24.240.1', 50005) -> ('194.124.80.14', 58520)) State.FROZEN -> State.WAITING
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.27.176.1', 50001) -> ('194.124.80.14', 58520)) State.WAITING -> State.IN_PROGRESS
+09:16:37 [aioice.ice] INFO: Connection(6) Discovered peer reflexive candidate Candidate(SNEqHNXlPV 1 udp 1845501695 172.27.176.1 58520 typ prflx)
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 58520)) State.WAITING -> State.IN_PROGRESS
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 58520)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.95.1', 50000) -> ('194.124.80.14', 58520)) State.WAITING -> State.FAILED
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.187.1', 50003) -> ('194.124.80.14', 58520)) State.WAITING -> State.FAILED
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('10.167.6.38', 50002) -> ('194.124.80.14', 58520)) State.WAITING -> State.FAILED
+09:16:37 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.24.240.1', 50005) -> ('194.124.80.14', 58520)) State.WAITING -> State.FAILED
+09:16:37 [aioice.ice] INFO: Connection(6) ICE completed
+09:16:39 [aioice.ice] INFO: Connection(6) Discovered peer reflexive candidate Candidate(WjYWRxTnZx 1 udp 1845501695 192.168.95.1 58520 typ prflx)
+09:16:39 [aioice.ice] INFO: Connection(6) Discovered peer reflexive candidate Candidate(93LxxPSFU3 1 udp 1845501695 192.168.187.1 58520 typ prflx)
+09:16:39 [aioice.ice] INFO: Connection(6) Discovered peer reflexive candidate Candidate(J3YhYevy31 1 udp 1845501695 10.167.6.38 58520 typ prflx)
+09:16:39 [aioice.ice] INFO: Connection(6) Discovered peer reflexive candidate Candidate(eYjqMcPw2w 1 udp 1845501695 172.24.240.1 58520 typ prflx)
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 58520)) State.WAITING -> State.FAILED
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 58520)) State.WAITING -> State.FAILED
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('10.167.6.38', 50002) -> ('10.167.6.38', 58520)) State.WAITING -> State.FAILED
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.24.240.1', 50005) -> ('172.24.240.1', 58520)) State.WAITING -> State.FAILED
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 58520)) State.FAILED -> State.IN_PROGRESS
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 58520)) State.FAILED -> State.IN_PROGRESS
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('10.167.6.38', 50002) -> ('10.167.6.38', 58520)) State.FAILED -> State.IN_PROGRESS
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.24.240.1', 50005) -> ('172.24.240.1', 58520)) State.FAILED -> State.IN_PROGRESS
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 58520)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 58520)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('10.167.6.38', 50002) -> ('10.167.6.38', 58520)) State.IN_PROGRESS -> State.SUCCEEDED
+09:16:39 [aioice.ice] INFO: Connection(6) Check CandidatePair(('172.24.240.1', 50005) -> ('172.24.240.1', 58520)) State.IN_PROGRESS -> State.SUCCEEDED
+09:18:45 [aioice.ice] INFO: Connection(7) Remote candidate "73b1cbb5-2b7f-40f3-a36e-7ff8e7ef0764.local" could not be resolved
+09:18:49 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:18:49 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:18:49 [aioice.ice] INFO: Connection(7) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:18:50 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:18:50 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:18:51 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:18:51 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:18:51 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:18:52 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:18:52 [aioice.ice] INFO: Connection(7) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10400)) State.FROZEN -> State.WAITING
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.95.1', 50001) -> ('77.109.177.71', 10400)) State.FROZEN -> State.WAITING
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.187.1', 50002) -> ('77.109.177.71', 10400)) State.FROZEN -> State.WAITING
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('10.212.1.181', 50003) -> ('77.109.177.71', 10400)) State.FROZEN -> State.WAITING
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.24.240.1', 50004) -> ('77.109.177.71', 10400)) State.FROZEN -> State.WAITING
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10400)) State.WAITING -> State.IN_PROGRESS
+09:18:57 [aioice.ice] INFO: Connection(7) Discovered peer reflexive candidate Candidate(jLRyLCk0Hw 1 udp 1845501695 172.27.176.1 49249 typ prflx)
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 49249)) State.WAITING -> State.IN_PROGRESS
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.95.1', 50001) -> ('77.109.177.71', 10400)) State.WAITING -> State.IN_PROGRESS
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.27.176.1', 50000) -> ('172.27.176.1', 49249)) State.IN_PROGRESS -> State.SUCCEEDED
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.187.1', 50002) -> ('77.109.177.71', 10400)) State.WAITING -> State.FAILED
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('10.212.1.181', 50003) -> ('77.109.177.71', 10400)) State.WAITING -> State.FAILED
+09:18:57 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.24.240.1', 50004) -> ('77.109.177.71', 10400)) State.WAITING -> State.FAILED
+09:18:57 [aioice.ice] INFO: Connection(7) ICE completed
+09:18:59 [aioice.ice] INFO: Connection(7) Discovered peer reflexive candidate Candidate(WzkkqV6BPe 1 udp 1845501695 192.168.95.1 49249 typ prflx)
+09:18:59 [aioice.ice] INFO: Connection(7) Discovered peer reflexive candidate Candidate(3sb0uLZoAn 1 udp 1845501695 192.168.187.1 49249 typ prflx)
+09:18:59 [aioice.ice] INFO: Connection(7) Discovered peer reflexive candidate Candidate(u3JtVY2Ndr 1 udp 1845501695 10.212.1.181 49249 typ prflx)
+09:18:59 [aioice.ice] INFO: Connection(7) Discovered peer reflexive candidate Candidate(j8puB0Nkhr 1 udp 1845501695 172.24.240.1 49249 typ prflx)
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 49249)) State.WAITING -> State.FAILED
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 49249)) State.WAITING -> State.FAILED
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 49249)) State.WAITING -> State.FAILED
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 49249)) State.WAITING -> State.FAILED
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 49249)) State.FAILED -> State.IN_PROGRESS
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 49249)) State.FAILED -> State.IN_PROGRESS
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 49249)) State.FAILED -> State.IN_PROGRESS
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 49249)) State.FAILED -> State.IN_PROGRESS
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.95.1', 50001) -> ('192.168.95.1', 49249)) State.IN_PROGRESS -> State.SUCCEEDED
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('192.168.187.1', 50002) -> ('192.168.187.1', 49249)) State.IN_PROGRESS -> State.SUCCEEDED
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 49249)) State.IN_PROGRESS -> State.SUCCEEDED
+09:18:59 [aioice.ice] INFO: Connection(7) Check CandidatePair(('172.24.240.1', 50004) -> ('172.24.240.1', 49249)) State.IN_PROGRESS -> State.SUCCEEDED
+09:19:08 [aioice.ice] INFO: Connection(6) Consent to send expired
+09:33:19 [aioice.ice] INFO: Connection(8) Remote candidate "73b1cbb5-2b7f-40f3-a36e-7ff8e7ef0764.local" resolved to 10.212.1.181
+09:33:19 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+09:33:19 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+09:33:20 [aioice.ice] INFO: Connection(8) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+09:33:21 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+09:33:22 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+09:33:22 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+09:33:23 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+09:33:23 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+09:33:24 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+09:33:25 [aioice.ice] INFO: Connection(8) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.27.176.1', 50000) -> ('10.212.1.181', 58979)) State.FROZEN -> State.WAITING
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.95.1', 50001) -> ('10.212.1.181', 58979)) State.FROZEN -> State.WAITING
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.187.1', 50002) -> ('10.212.1.181', 58979)) State.FROZEN -> State.WAITING
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 58979)) State.FROZEN -> State.WAITING
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.24.240.1', 50004) -> ('10.212.1.181', 58979)) State.FROZEN -> State.WAITING
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10450)) State.FROZEN -> State.WAITING
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.27.176.1', 50000) -> ('10.212.1.181', 58979)) State.WAITING -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.95.1', 50001) -> ('10.212.1.181', 58979)) State.WAITING -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.187.1', 50002) -> ('10.212.1.181', 58979)) State.WAITING -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 58979)) State.WAITING -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.24.240.1', 50004) -> ('10.212.1.181', 58979)) State.WAITING -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10450)) State.WAITING -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.95.1', 50001) -> ('77.109.177.71', 10450)) State.FROZEN -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.187.1', 50002) -> ('77.109.177.71', 10450)) State.FROZEN -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('10.212.1.181', 50003) -> ('77.109.177.71', 10450)) State.FROZEN -> State.IN_PROGRESS
+09:33:30 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.24.240.1', 50004) -> ('77.109.177.71', 10450)) State.FROZEN -> State.IN_PROGRESS
+09:34:33 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.27.176.1', 50000) -> ('10.212.1.181', 58979)) State.IN_PROGRESS -> State.FAILED
+09:34:33 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.95.1', 50001) -> ('10.212.1.181', 58979)) State.IN_PROGRESS -> State.FAILED
+09:34:33 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.187.1', 50002) -> ('10.212.1.181', 58979)) State.IN_PROGRESS -> State.FAILED
+09:34:33 [aioice.ice] INFO: Connection(8) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 58979)) State.IN_PROGRESS -> State.FAILED
+09:34:34 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.24.240.1', 50004) -> ('10.212.1.181', 58979)) State.IN_PROGRESS -> State.FAILED
+09:34:34 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10450)) State.IN_PROGRESS -> State.FAILED
+09:34:34 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.95.1', 50001) -> ('77.109.177.71', 10450)) State.IN_PROGRESS -> State.FAILED
+09:34:34 [aioice.ice] INFO: Connection(8) Check CandidatePair(('192.168.187.1', 50002) -> ('77.109.177.71', 10450)) State.IN_PROGRESS -> State.FAILED
+09:34:34 [aioice.ice] INFO: Connection(8) Check CandidatePair(('10.212.1.181', 50003) -> ('77.109.177.71', 10450)) State.IN_PROGRESS -> State.FAILED
+09:34:34 [aioice.ice] INFO: Connection(8) Check CandidatePair(('172.24.240.1', 50004) -> ('77.109.177.71', 10450)) State.IN_PROGRESS -> State.FAILED
+09:34:34 [aioice.ice] INFO: Connection(8) ICE failed
+10:47:13 [aioice.ice] INFO: Connection(9) Remote candidate "73b1cbb5-2b7f-40f3-a36e-7ff8e7ef0764.local" resolved to 10.212.1.181
+10:47:14 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+10:47:14 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+10:47:14 [aioice.ice] INFO: Connection(9) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+10:47:14 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+10:47:15 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+10:47:15 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+10:47:15 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+10:47:15 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+10:47:16 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+10:47:16 [aioice.ice] INFO: Connection(9) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+10:47:16 [aioice.ice] INFO: Connection(10) Remote candidate "f5b9f130-1a77-4e49-bd7c-b86ac70f6cef.local" resolved to 10.212.1.181
+10:47:17 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+10:47:17 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+10:47:17 [aioice.ice] INFO: Connection(10) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+10:47:17 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+10:47:18 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+10:47:18 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+10:47:18 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+10:47:18 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+10:47:18 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+10:47:19 [aioice.ice] INFO: Connection(10) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.27.176.1', 50000) -> ('10.212.1.181', 60510)) State.FROZEN -> State.WAITING
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.95.1', 50001) -> ('10.212.1.181', 60510)) State.FROZEN -> State.WAITING
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.187.1', 50002) -> ('10.212.1.181', 60510)) State.FROZEN -> State.WAITING
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 60510)) State.FROZEN -> State.WAITING
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.24.240.1', 50004) -> ('10.212.1.181', 60510)) State.FROZEN -> State.WAITING
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10404)) State.FROZEN -> State.WAITING
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.27.176.1', 50000) -> ('10.212.1.181', 60510)) State.WAITING -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.95.1', 50001) -> ('10.212.1.181', 60510)) State.WAITING -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.187.1', 50002) -> ('10.212.1.181', 60510)) State.WAITING -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 60510)) State.WAITING -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.24.240.1', 50004) -> ('10.212.1.181', 60510)) State.WAITING -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10404)) State.WAITING -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.95.1', 50001) -> ('77.109.177.71', 10404)) State.FROZEN -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.187.1', 50002) -> ('77.109.177.71', 10404)) State.FROZEN -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('10.212.1.181', 50003) -> ('77.109.177.71', 10404)) State.FROZEN -> State.IN_PROGRESS
+10:47:21 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.24.240.1', 50004) -> ('77.109.177.71', 10404)) State.FROZEN -> State.IN_PROGRESS
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 60817)) State.FROZEN -> State.WAITING
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 60817)) State.FROZEN -> State.WAITING
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 60817)) State.FROZEN -> State.WAITING
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60817)) State.FROZEN -> State.WAITING
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 60817)) State.FROZEN -> State.WAITING
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10406)) State.FROZEN -> State.WAITING
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 60817)) State.WAITING -> State.IN_PROGRESS
+10:47:24 [aioice.ice] INFO: Connection(10) Discovered peer reflexive candidate Candidate(Ybwf70az0l 1 udp 1845501695 172.27.176.1 60817 typ prflx)
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 60817)) State.WAITING -> State.IN_PROGRESS
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 60817)) State.IN_PROGRESS -> State.SUCCEEDED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 60817)) State.WAITING -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 60817)) State.WAITING -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60817)) State.WAITING -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 60817)) State.WAITING -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10406)) State.WAITING -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10406)) State.FROZEN -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10406)) State.FROZEN -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('10.212.1.181', 50002) -> ('77.109.177.71', 10406)) State.FROZEN -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.24.240.1', 50006) -> ('77.109.177.71', 10406)) State.FROZEN -> State.FAILED
+10:47:24 [aioice.ice] INFO: Connection(10) ICE completed
+10:47:25 [aioice.ice] INFO: Connection(10) Discovered peer reflexive candidate Candidate(pf88cHL2yR 1 udp 1845501695 192.168.95.1 60817 typ prflx)
+10:47:25 [aioice.ice] INFO: Connection(10) Discovered peer reflexive candidate Candidate(vNVDlJKGQ8 1 udp 1845501695 192.168.187.1 60817 typ prflx)
+10:47:25 [aioice.ice] INFO: Connection(10) Discovered peer reflexive candidate Candidate(L3g0s7g9uA 1 udp 1845501695 172.24.240.1 60817 typ prflx)
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 60817)) State.WAITING -> State.FAILED
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 60817)) State.WAITING -> State.FAILED
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 60817)) State.WAITING -> State.FAILED
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 60817)) State.FAILED -> State.IN_PROGRESS
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 60817)) State.FAILED -> State.IN_PROGRESS
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60817)) State.FAILED -> State.IN_PROGRESS
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 60817)) State.FAILED -> State.IN_PROGRESS
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 60817)) State.IN_PROGRESS -> State.SUCCEEDED
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 60817)) State.IN_PROGRESS -> State.SUCCEEDED
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60817)) State.IN_PROGRESS -> State.SUCCEEDED
+10:47:25 [aioice.ice] INFO: Connection(10) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 60817)) State.IN_PROGRESS -> State.SUCCEEDED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.27.176.1', 50000) -> ('10.212.1.181', 60510)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.95.1', 50001) -> ('10.212.1.181', 60510)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.187.1', 50002) -> ('10.212.1.181', 60510)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('10.212.1.181', 50003) -> ('10.212.1.181', 60510)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.24.240.1', 50004) -> ('10.212.1.181', 60510)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.27.176.1', 50000) -> ('77.109.177.71', 10404)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.95.1', 50001) -> ('77.109.177.71', 10404)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('192.168.187.1', 50002) -> ('77.109.177.71', 10404)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('10.212.1.181', 50003) -> ('77.109.177.71', 10404)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) Check CandidatePair(('172.24.240.1', 50004) -> ('77.109.177.71', 10404)) State.IN_PROGRESS -> State.FAILED
+10:48:26 [aioice.ice] INFO: Connection(9) ICE failed
+10:48:27 [aioice.ice] INFO: Connection(11) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+10:48:27 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+10:48:27 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+10:48:28 [aioice.ice] INFO: Connection(11) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+10:48:28 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+10:48:28 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+10:48:29 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+10:48:29 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+10:48:29 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+10:48:29 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+10:48:29 [aioice.ice] INFO: Connection(11) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 60038)) State.FROZEN -> State.WAITING
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 60038)) State.FROZEN -> State.WAITING
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 60038)) State.FROZEN -> State.WAITING
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60038)) State.FROZEN -> State.WAITING
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 60038)) State.FROZEN -> State.WAITING
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10408)) State.FROZEN -> State.WAITING
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 60038)) State.WAITING -> State.IN_PROGRESS
+10:48:34 [aioice.ice] INFO: Connection(11) Discovered peer reflexive candidate Candidate(c7QV1oOkJ4 1 udp 1845501695 172.27.176.1 60038 typ prflx)
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 60038)) State.WAITING -> State.IN_PROGRESS
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 60038)) State.IN_PROGRESS -> State.SUCCEEDED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 60038)) State.WAITING -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 60038)) State.WAITING -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60038)) State.WAITING -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 60038)) State.WAITING -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10408)) State.WAITING -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10408)) State.FROZEN -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10408)) State.FROZEN -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('10.212.1.181', 50002) -> ('77.109.177.71', 10408)) State.FROZEN -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.24.240.1', 50006) -> ('77.109.177.71', 10408)) State.FROZEN -> State.FAILED
+10:48:34 [aioice.ice] INFO: Connection(11) ICE completed
+10:48:36 [aioice.ice] INFO: Connection(11) Discovered peer reflexive candidate Candidate(Q4ER5Y5c7F 1 udp 1845501695 192.168.95.1 60038 typ prflx)
+10:48:36 [aioice.ice] INFO: Connection(11) Discovered peer reflexive candidate Candidate(loj0UDTpT1 1 udp 1845501695 192.168.187.1 60038 typ prflx)
+10:48:36 [aioice.ice] INFO: Connection(11) Discovered peer reflexive candidate Candidate(TBY4lgeMx8 1 udp 1845501695 172.24.240.1 60038 typ prflx)
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 60038)) State.WAITING -> State.FAILED
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 60038)) State.WAITING -> State.FAILED
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 60038)) State.WAITING -> State.FAILED
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 60038)) State.FAILED -> State.IN_PROGRESS
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 60038)) State.FAILED -> State.IN_PROGRESS
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60038)) State.FAILED -> State.IN_PROGRESS
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 60038)) State.FAILED -> State.IN_PROGRESS
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 60038)) State.IN_PROGRESS -> State.SUCCEEDED
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 60038)) State.IN_PROGRESS -> State.SUCCEEDED
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 60038)) State.IN_PROGRESS -> State.SUCCEEDED
+10:48:36 [aioice.ice] INFO: Connection(11) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 60038)) State.IN_PROGRESS -> State.SUCCEEDED
+11:06:51 [aioice.ice] INFO: Connection(12) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+11:06:52 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:06:53 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:06:55 [aioice.ice] INFO: Connection(12) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:06:55 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:06:56 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:06:57 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:06:57 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:06:58 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:06:59 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:07:00 [aioice.ice] INFO: Connection(12) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 50219)) State.FROZEN -> State.WAITING
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 50219)) State.FROZEN -> State.WAITING
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 50219)) State.FROZEN -> State.WAITING
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 50219)) State.FROZEN -> State.WAITING
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 50219)) State.FROZEN -> State.WAITING
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10414)) State.FROZEN -> State.WAITING
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 50219)) State.WAITING -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 50219)) State.WAITING -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 50219)) State.WAITING -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 50219)) State.WAITING -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 50219)) State.WAITING -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10414)) State.WAITING -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10414)) State.FROZEN -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10414)) State.FROZEN -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('10.212.1.181', 50002) -> ('77.109.177.71', 10414)) State.FROZEN -> State.IN_PROGRESS
+11:07:05 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.24.240.1', 50006) -> ('77.109.177.71', 10414)) State.FROZEN -> State.IN_PROGRESS
+11:07:10 [aioice.ice] INFO: Connection(12) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 50219)) State.IN_PROGRESS -> State.SUCCEEDED
+11:07:32 [aioice.ice] INFO: Connection(13) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+11:07:33 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:07:33 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:07:33 [aioice.ice] INFO: Connection(13) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:07:33 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:07:34 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:07:34 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:07:35 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:07:35 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:07:35 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:07:35 [aioice.ice] INFO: Connection(13) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.27.176.1', 50002) -> ('10.212.1.181', 62724)) State.FROZEN -> State.WAITING
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.95.1', 50003) -> ('10.212.1.181', 62724)) State.FROZEN -> State.WAITING
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.187.1', 50000) -> ('10.212.1.181', 62724)) State.FROZEN -> State.WAITING
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('10.212.1.181', 50001) -> ('10.212.1.181', 62724)) State.FROZEN -> State.WAITING
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.24.240.1', 50007) -> ('10.212.1.181', 62724)) State.FROZEN -> State.WAITING
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.27.176.1', 50002) -> ('77.109.177.71', 10416)) State.FROZEN -> State.WAITING
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.27.176.1', 50002) -> ('10.212.1.181', 62724)) State.WAITING -> State.IN_PROGRESS
+11:07:40 [aioice.ice] INFO: Connection(13) Discovered peer reflexive candidate Candidate(UovtBwsHrj 1 udp 1845501695 172.27.176.1 62724 typ prflx)
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.27.176.1', 50002) -> ('172.27.176.1', 62724)) State.WAITING -> State.IN_PROGRESS
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.27.176.1', 50002) -> ('172.27.176.1', 62724)) State.IN_PROGRESS -> State.SUCCEEDED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.95.1', 50003) -> ('10.212.1.181', 62724)) State.WAITING -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.187.1', 50000) -> ('10.212.1.181', 62724)) State.WAITING -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('10.212.1.181', 50001) -> ('10.212.1.181', 62724)) State.WAITING -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.24.240.1', 50007) -> ('10.212.1.181', 62724)) State.WAITING -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.27.176.1', 50002) -> ('77.109.177.71', 10416)) State.WAITING -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.95.1', 50003) -> ('77.109.177.71', 10416)) State.FROZEN -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.187.1', 50000) -> ('77.109.177.71', 10416)) State.FROZEN -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('10.212.1.181', 50001) -> ('77.109.177.71', 10416)) State.FROZEN -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.24.240.1', 50007) -> ('77.109.177.71', 10416)) State.FROZEN -> State.FAILED
+11:07:40 [aioice.ice] INFO: Connection(13) ICE completed
+11:07:42 [aioice.ice] INFO: Connection(13) Discovered peer reflexive candidate Candidate(20OYRsFgAW 1 udp 1845501695 192.168.95.1 62724 typ prflx)
+11:07:42 [aioice.ice] INFO: Connection(13) Discovered peer reflexive candidate Candidate(9cMlcgwWg0 1 udp 1845501695 192.168.187.1 62724 typ prflx)
+11:07:42 [aioice.ice] INFO: Connection(13) Discovered peer reflexive candidate Candidate(ruLaQNhUPl 1 udp 1845501695 172.24.240.1 62724 typ prflx)
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.95.1', 50003) -> ('192.168.95.1', 62724)) State.WAITING -> State.FAILED
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.187.1', 50000) -> ('192.168.187.1', 62724)) State.WAITING -> State.FAILED
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.24.240.1', 50007) -> ('172.24.240.1', 62724)) State.WAITING -> State.FAILED
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.95.1', 50003) -> ('192.168.95.1', 62724)) State.FAILED -> State.IN_PROGRESS
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.187.1', 50000) -> ('192.168.187.1', 62724)) State.FAILED -> State.IN_PROGRESS
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('10.212.1.181', 50001) -> ('10.212.1.181', 62724)) State.FAILED -> State.IN_PROGRESS
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.24.240.1', 50007) -> ('172.24.240.1', 62724)) State.FAILED -> State.IN_PROGRESS
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.95.1', 50003) -> ('192.168.95.1', 62724)) State.IN_PROGRESS -> State.SUCCEEDED
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('192.168.187.1', 50000) -> ('192.168.187.1', 62724)) State.IN_PROGRESS -> State.SUCCEEDED
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('10.212.1.181', 50001) -> ('10.212.1.181', 62724)) State.IN_PROGRESS -> State.SUCCEEDED
+11:07:42 [aioice.ice] INFO: Connection(13) Check CandidatePair(('172.24.240.1', 50007) -> ('172.24.240.1', 62724)) State.IN_PROGRESS -> State.SUCCEEDED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 50219)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 50219)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 50219)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 50219)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10414)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10414)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10414)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('10.212.1.181', 50002) -> ('77.109.177.71', 10414)) State.IN_PROGRESS -> State.FAILED
+11:08:09 [aioice.ice] INFO: Connection(12) Check CandidatePair(('172.24.240.1', 50006) -> ('77.109.177.71', 10414)) State.IN_PROGRESS -> State.FAILED
+11:10:24 [aioice.ice] INFO: Connection(14) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+11:10:24 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:10:24 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:10:24 [aioice.ice] INFO: Connection(14) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:10:25 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:10:25 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:10:25 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:10:25 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:10:26 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:10:26 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:10:26 [aioice.ice] INFO: Connection(14) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 49152)) State.FROZEN -> State.WAITING
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 49152)) State.FROZEN -> State.WAITING
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 49152)) State.FROZEN -> State.WAITING
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 49152)) State.FROZEN -> State.WAITING
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 49152)) State.FROZEN -> State.WAITING
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10428)) State.FROZEN -> State.WAITING
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 49152)) State.WAITING -> State.IN_PROGRESS
+11:10:31 [aioice.ice] INFO: Connection(14) Discovered peer reflexive candidate Candidate(ib3Irndj8x 1 udp 1845501695 172.27.176.1 49152 typ prflx)
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 49152)) State.WAITING -> State.IN_PROGRESS
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 49152)) State.IN_PROGRESS -> State.SUCCEEDED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 49152)) State.WAITING -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 49152)) State.WAITING -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 49152)) State.WAITING -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 49152)) State.WAITING -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10428)) State.WAITING -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10428)) State.FROZEN -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10428)) State.FROZEN -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('10.212.1.181', 50002) -> ('77.109.177.71', 10428)) State.FROZEN -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.24.240.1', 50006) -> ('77.109.177.71', 10428)) State.FROZEN -> State.FAILED
+11:10:31 [aioice.ice] INFO: Connection(14) ICE completed
+11:10:34 [aioice.ice] INFO: Connection(14) Discovered peer reflexive candidate Candidate(IYtsiat8Co 1 udp 1845501695 192.168.95.1 49152 typ prflx)
+11:10:34 [aioice.ice] INFO: Connection(14) Discovered peer reflexive candidate Candidate(lVUUYUC3oF 1 udp 1845501695 192.168.187.1 49152 typ prflx)
+11:10:34 [aioice.ice] INFO: Connection(14) Discovered peer reflexive candidate Candidate(JdC6UPIlKe 1 udp 1845501695 172.24.240.1 49152 typ prflx)
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 49152)) State.WAITING -> State.FAILED
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 49152)) State.WAITING -> State.FAILED
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 49152)) State.WAITING -> State.FAILED
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 49152)) State.FAILED -> State.IN_PROGRESS
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 49152)) State.FAILED -> State.IN_PROGRESS
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 49152)) State.FAILED -> State.IN_PROGRESS
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 49152)) State.FAILED -> State.IN_PROGRESS
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 49152)) State.IN_PROGRESS -> State.SUCCEEDED
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 49152)) State.IN_PROGRESS -> State.SUCCEEDED
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 49152)) State.IN_PROGRESS -> State.SUCCEEDED
+11:10:34 [aioice.ice] INFO: Connection(14) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 49152)) State.IN_PROGRESS -> State.SUCCEEDED
+11:12:20 [aioice.ice] INFO: Connection(15) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+11:12:21 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:12:21 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:12:21 [aioice.ice] INFO: Connection(15) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:12:21 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:12:22 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:12:22 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:12:22 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:12:23 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:12:23 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:12:23 [aioice.ice] INFO: Connection(15) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 53174)) State.FROZEN -> State.WAITING
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 53174)) State.FROZEN -> State.WAITING
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 53174)) State.FROZEN -> State.WAITING
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 53174)) State.FROZEN -> State.WAITING
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 53174)) State.FROZEN -> State.WAITING
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10440)) State.FROZEN -> State.WAITING
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 53174)) State.WAITING -> State.IN_PROGRESS
+11:12:28 [aioice.ice] INFO: Connection(15) Discovered peer reflexive candidate Candidate(aDO3XNxMhG 1 udp 1845501695 172.27.176.1 53174 typ prflx)
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 53174)) State.WAITING -> State.IN_PROGRESS
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 53174)) State.IN_PROGRESS -> State.SUCCEEDED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 53174)) State.WAITING -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 53174)) State.WAITING -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 53174)) State.WAITING -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.24.240.1', 50006) -> ('10.212.1.181', 53174)) State.WAITING -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10440)) State.WAITING -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10440)) State.FROZEN -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10440)) State.FROZEN -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('10.212.1.181', 50002) -> ('77.109.177.71', 10440)) State.FROZEN -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.24.240.1', 50006) -> ('77.109.177.71', 10440)) State.FROZEN -> State.FAILED
+11:12:28 [aioice.ice] INFO: Connection(15) ICE completed
+11:12:30 [aioice.ice] INFO: Connection(15) Discovered peer reflexive candidate Candidate(OCTwXwpbZ2 1 udp 1845501695 192.168.95.1 53174 typ prflx)
+11:12:30 [aioice.ice] INFO: Connection(15) Discovered peer reflexive candidate Candidate(uiStBHTAUg 1 udp 1845501695 192.168.187.1 53174 typ prflx)
+11:12:30 [aioice.ice] INFO: Connection(15) Discovered peer reflexive candidate Candidate(1zFYpI3cAR 1 udp 1845501695 172.24.240.1 53174 typ prflx)
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 53174)) State.WAITING -> State.FAILED
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 53174)) State.WAITING -> State.FAILED
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 53174)) State.WAITING -> State.FAILED
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 53174)) State.FAILED -> State.IN_PROGRESS
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 53174)) State.FAILED -> State.IN_PROGRESS
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 53174)) State.FAILED -> State.IN_PROGRESS
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 53174)) State.FAILED -> State.IN_PROGRESS
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 53174)) State.IN_PROGRESS -> State.SUCCEEDED
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 53174)) State.IN_PROGRESS -> State.SUCCEEDED
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('10.212.1.181', 50002) -> ('10.212.1.181', 53174)) State.IN_PROGRESS -> State.SUCCEEDED
+11:12:30 [aioice.ice] INFO: Connection(15) Check CandidatePair(('172.24.240.1', 50006) -> ('172.24.240.1', 53174)) State.IN_PROGRESS -> State.SUCCEEDED
+11:13:03 [aioice.ice] INFO: Connection(16) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+11:13:04 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:13:06 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:13:07 [aioice.ice] INFO: Connection(16) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:13:08 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:13:10 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:13:11 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:13:11 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:13:12 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:13:13 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:13:13 [aioice.ice] INFO: Connection(16) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 61781)) State.FROZEN -> State.WAITING
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 61781)) State.FROZEN -> State.WAITING
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 61781)) State.FROZEN -> State.WAITING
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 61781)) State.FROZEN -> State.WAITING
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.24.240.1', 50002) -> ('10.212.1.181', 61781)) State.FROZEN -> State.WAITING
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10448)) State.FROZEN -> State.WAITING
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 61781)) State.WAITING -> State.IN_PROGRESS
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 61781)) State.WAITING -> State.IN_PROGRESS
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 61781)) State.WAITING -> State.IN_PROGRESS
+11:13:18 [aioice.ice] INFO: Connection(16) Discovered peer reflexive candidate Candidate(tL2M6PAYmk 1 udp 1845501695 172.27.176.1 61781 typ prflx)
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 61781)) State.WAITING -> State.IN_PROGRESS
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 61781)) State.IN_PROGRESS -> State.SUCCEEDED
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 61781)) State.WAITING -> State.FAILED
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.24.240.1', 50002) -> ('10.212.1.181', 61781)) State.WAITING -> State.FAILED
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10448)) State.WAITING -> State.FAILED
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10448)) State.FROZEN -> State.FAILED
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10448)) State.FROZEN -> State.FAILED
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('10.212.1.181', 50004) -> ('77.109.177.71', 10448)) State.FROZEN -> State.FAILED
+11:13:18 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.24.240.1', 50002) -> ('77.109.177.71', 10448)) State.FROZEN -> State.FAILED
+11:13:18 [aioice.ice] INFO: Connection(16) ICE completed
+11:13:22 [aioice.ice] INFO: Connection(16) Discovered peer reflexive candidate Candidate(379qGuSHn3 1 udp 1845501695 192.168.95.1 61781 typ prflx)
+11:13:22 [aioice.ice] INFO: Connection(16) Discovered peer reflexive candidate Candidate(BqanT3rLA5 1 udp 1845501695 192.168.187.1 61781 typ prflx)
+11:13:22 [aioice.ice] INFO: Connection(16) Discovered peer reflexive candidate Candidate(vr6LqHt4OC 1 udp 1845501695 172.24.240.1 61781 typ prflx)
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 61781)) State.WAITING -> State.FAILED
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 61781)) State.WAITING -> State.FAILED
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 61781)) State.WAITING -> State.FAILED
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 61781)) State.FAILED -> State.IN_PROGRESS
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 61781)) State.FAILED -> State.IN_PROGRESS
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 61781)) State.FAILED -> State.IN_PROGRESS
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 61781)) State.FAILED -> State.IN_PROGRESS
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 61781)) State.IN_PROGRESS -> State.SUCCEEDED
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 61781)) State.IN_PROGRESS -> State.SUCCEEDED
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 61781)) State.IN_PROGRESS -> State.SUCCEEDED
+11:13:22 [aioice.ice] INFO: Connection(16) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 61781)) State.IN_PROGRESS -> State.SUCCEEDED
+11:14:25 [aioice.ice] INFO: Connection(16) Consent to send expired
+11:17:22 [aioice.ice] INFO: Connection(17) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+11:17:23 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:17:23 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:17:23 [aioice.ice] INFO: Connection(17) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:17:23 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:17:24 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:17:24 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:17:24 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:17:24 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:17:25 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:17:25 [aioice.ice] INFO: Connection(17) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 64310)) State.FROZEN -> State.WAITING
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 64310)) State.FROZEN -> State.WAITING
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 64310)) State.FROZEN -> State.WAITING
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 64310)) State.FROZEN -> State.WAITING
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.24.240.1', 50002) -> ('10.212.1.181', 64310)) State.FROZEN -> State.WAITING
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10464)) State.FROZEN -> State.WAITING
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 64310)) State.WAITING -> State.IN_PROGRESS
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 64310)) State.WAITING -> State.IN_PROGRESS
+11:17:30 [aioice.ice] INFO: Connection(17) Discovered peer reflexive candidate Candidate(nOiPBcQ2Ka 1 udp 1845501695 172.27.176.1 64310 typ prflx)
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 64310)) State.WAITING -> State.IN_PROGRESS
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 64310)) State.IN_PROGRESS -> State.SUCCEEDED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 64310)) State.WAITING -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 64310)) State.WAITING -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.24.240.1', 50002) -> ('10.212.1.181', 64310)) State.WAITING -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10464)) State.WAITING -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10464)) State.FROZEN -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10464)) State.FROZEN -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('10.212.1.181', 50004) -> ('77.109.177.71', 10464)) State.FROZEN -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.24.240.1', 50002) -> ('77.109.177.71', 10464)) State.FROZEN -> State.FAILED
+11:17:30 [aioice.ice] INFO: Connection(17) ICE completed
+11:17:33 [aioice.ice] INFO: Connection(17) Discovered peer reflexive candidate Candidate(fVz8Ea9nX2 1 udp 1845501695 192.168.95.1 64310 typ prflx)
+11:17:33 [aioice.ice] INFO: Connection(17) Discovered peer reflexive candidate Candidate(SWZfw8lHHM 1 udp 1845501695 192.168.187.1 64310 typ prflx)
+11:17:33 [aioice.ice] INFO: Connection(17) Discovered peer reflexive candidate Candidate(IiuhTvFYhl 1 udp 1845501695 172.24.240.1 64310 typ prflx)
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 64310)) State.WAITING -> State.FAILED
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 64310)) State.WAITING -> State.FAILED
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 64310)) State.WAITING -> State.FAILED
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 64310)) State.FAILED -> State.IN_PROGRESS
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 64310)) State.FAILED -> State.IN_PROGRESS
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 64310)) State.FAILED -> State.IN_PROGRESS
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 64310)) State.FAILED -> State.IN_PROGRESS
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 64310)) State.IN_PROGRESS -> State.SUCCEEDED
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 64310)) State.IN_PROGRESS -> State.SUCCEEDED
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 64310)) State.IN_PROGRESS -> State.SUCCEEDED
+11:17:33 [aioice.ice] INFO: Connection(17) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 64310)) State.IN_PROGRESS -> State.SUCCEEDED
+11:19:01 [aioice.ice] INFO: Connection(18) Remote candidate "2f0cc228-2733-48cf-9684-c953c05f30d5.local" resolved to 10.212.1.181
+11:19:02 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:19:02 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:19:02 [aioice.ice] INFO: Connection(18) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:19:03 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:19:03 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:19:04 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:19:05 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:19:05 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:19:05 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:19:06 [aioice.ice] INFO: Connection(18) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 53676)) State.FROZEN -> State.WAITING
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 53676)) State.FROZEN -> State.WAITING
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 53676)) State.FROZEN -> State.WAITING
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 53676)) State.FROZEN -> State.WAITING
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.24.240.1', 50002) -> ('10.212.1.181', 53676)) State.FROZEN -> State.WAITING
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10468)) State.FROZEN -> State.WAITING
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.27.176.1', 50001) -> ('10.212.1.181', 53676)) State.WAITING -> State.IN_PROGRESS
+11:19:11 [aioice.ice] INFO: Connection(18) Discovered peer reflexive candidate Candidate(dsrKlpYJQz 1 udp 1845501695 172.27.176.1 53676 typ prflx)
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 53676)) State.WAITING -> State.IN_PROGRESS
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.27.176.1', 50001) -> ('172.27.176.1', 53676)) State.IN_PROGRESS -> State.SUCCEEDED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.95.1', 50000) -> ('10.212.1.181', 53676)) State.WAITING -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.187.1', 50003) -> ('10.212.1.181', 53676)) State.WAITING -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 53676)) State.WAITING -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.24.240.1', 50002) -> ('10.212.1.181', 53676)) State.WAITING -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.27.176.1', 50001) -> ('77.109.177.71', 10468)) State.WAITING -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.95.1', 50000) -> ('77.109.177.71', 10468)) State.FROZEN -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.187.1', 50003) -> ('77.109.177.71', 10468)) State.FROZEN -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('10.212.1.181', 50004) -> ('77.109.177.71', 10468)) State.FROZEN -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.24.240.1', 50002) -> ('77.109.177.71', 10468)) State.FROZEN -> State.FAILED
+11:19:11 [aioice.ice] INFO: Connection(18) ICE completed
+11:19:12 [aioice.ice] INFO: Connection(18) Discovered peer reflexive candidate Candidate(GVxqMqbgfZ 1 udp 1845501695 192.168.95.1 53676 typ prflx)
+11:19:12 [aioice.ice] INFO: Connection(18) Discovered peer reflexive candidate Candidate(Wz2MKjED0F 1 udp 1845501695 192.168.187.1 53676 typ prflx)
+11:19:12 [aioice.ice] INFO: Connection(18) Discovered peer reflexive candidate Candidate(Nq1c5DQmqf 1 udp 1845501695 172.24.240.1 53676 typ prflx)
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 53676)) State.WAITING -> State.FAILED
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 53676)) State.WAITING -> State.FAILED
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 53676)) State.WAITING -> State.FAILED
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 53676)) State.FAILED -> State.IN_PROGRESS
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 53676)) State.FAILED -> State.IN_PROGRESS
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 53676)) State.FAILED -> State.IN_PROGRESS
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 53676)) State.FAILED -> State.IN_PROGRESS
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.95.1', 50000) -> ('192.168.95.1', 53676)) State.IN_PROGRESS -> State.SUCCEEDED
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('192.168.187.1', 50003) -> ('192.168.187.1', 53676)) State.IN_PROGRESS -> State.SUCCEEDED
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('10.212.1.181', 50004) -> ('10.212.1.181', 53676)) State.IN_PROGRESS -> State.SUCCEEDED
+11:19:12 [aioice.ice] INFO: Connection(18) Check CandidatePair(('172.24.240.1', 50002) -> ('172.24.240.1', 53676)) State.IN_PROGRESS -> State.SUCCEEDED
+11:19:21 [sentinelCam.worker] INFO: Switched preset -> yolov8s (det=C:\Users\liebler\sentinelCam-worker\.runtime\weights\yolov8s.pt, pose=None)
+11:21:59 [aioice.ice] INFO: Connection(19) Remote candidate "3b517cc9-fef9-4fd1-9efb-c129deb7debd.local" resolved to 10.167.6.38
+11:22:02 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+11:22:03 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+11:22:06 [aioice.ice] INFO: Connection(19) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+11:22:07 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+11:22:07 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+11:22:07 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+11:22:08 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+11:22:09 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+11:22:09 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+11:22:10 [aioice.ice] INFO: Connection(19) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('172.27.176.1', 50002) -> ('10.167.6.38', 63840)) State.FROZEN -> State.WAITING
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('192.168.95.1', 50003) -> ('10.167.6.38', 63840)) State.FROZEN -> State.WAITING
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('192.168.187.1', 50000) -> ('10.167.6.38', 63840)) State.FROZEN -> State.WAITING
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('10.167.6.38', 50001) -> ('10.167.6.38', 63840)) State.FROZEN -> State.WAITING
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('172.24.240.1', 50007) -> ('10.167.6.38', 63840)) State.FROZEN -> State.WAITING
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('172.27.176.1', 50002) -> ('194.124.80.14', 63840)) State.FROZEN -> State.WAITING
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('172.27.176.1', 50002) -> ('10.167.6.38', 63840)) State.WAITING -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('192.168.95.1', 50003) -> ('10.167.6.38', 63840)) State.WAITING -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('192.168.187.1', 50000) -> ('10.167.6.38', 63840)) State.WAITING -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('10.167.6.38', 50001) -> ('10.167.6.38', 63840)) State.WAITING -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('172.24.240.1', 50007) -> ('10.167.6.38', 63840)) State.WAITING -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('172.27.176.1', 50002) -> ('194.124.80.14', 63840)) State.WAITING -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('192.168.95.1', 50003) -> ('194.124.80.14', 63840)) State.FROZEN -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('192.168.187.1', 50000) -> ('194.124.80.14', 63840)) State.FROZEN -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('10.167.6.38', 50001) -> ('194.124.80.14', 63840)) State.FROZEN -> State.IN_PROGRESS
+11:22:15 [aioice.ice] INFO: Connection(19) Check CandidatePair(('172.24.240.1', 50007) -> ('194.124.80.14', 63840)) State.FROZEN -> State.IN_PROGRESS
+11:22:16 [aioice.ice] INFO: Connection(19) Check CandidatePair(('10.167.6.38', 50001) -> ('10.167.6.38', 63840)) State.IN_PROGRESS -> State.SUCCEEDED
+11:22:16 [aioice.ice] INFO: Connection(19) ICE completed
+11:22:26 [aioice.ice] INFO: Connection(18) Consent to send expired
+13:37:45 [aioice.ice] INFO: Connection(20) Remote candidate "352b95a0-6aa9-4e7d-9388-3e27a77a1477.local" could not be resolved
+13:37:45 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.248.99 - No available UDP port in range 50000-51000
+13:37:45 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.162.111 - No available UDP port in range 50000-51000
+13:37:45 [aioice.ice] INFO: Connection(20) Could not bind to 192.168.127.250 - No available UDP port in range 50000-51000
+13:37:45 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.235.2 - No available UDP port in range 50000-51000
+13:37:46 [aioice.ice] INFO: Connection(20) Could not bind to 10.167.14.4 - No available UDP port in range 50000-51000
+13:37:46 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.130.144 - No available UDP port in range 50000-51000
+13:37:46 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.233.148 - No available UDP port in range 50000-51000
+13:37:46 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.195.79 - No available UDP port in range 50000-51000
+13:37:46 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.189.146 - No available UDP port in range 50000-51000
+13:37:47 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.230.251 - No available UDP port in range 50000-51000
+13:37:47 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.91.241 - No available UDP port in range 50000-51000
+13:37:47 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.141.86 - No available UDP port in range 50000-51000
+13:37:47 [aioice.ice] INFO: Connection(20) Could not bind to 169.254.119.208 - No available UDP port in range 50000-51000
+13:37:52 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-9437' coro=<RTCPeerConnection.__connect() done, defined at C:\Users\liebler\sentinelCam-worker\.runtime\venv\Lib\site-packages\aiortc\rtcpeerconnection.py:1057> exception=InvalidStateError('RTCIceTransport is closed')>
+Traceback (most recent call last):
+  File "C:\Users\liebler\sentinelCam-worker\.runtime\venv\Lib\site-packages\aiortc\rtcpeerconnection.py", line 1065, in __connect
+    await iceTransport.start(self.__remoteIce[transceiver])
+  File "C:\Users\liebler\sentinelCam-worker\.runtime\venv\Lib\site-packages\aiortc\rtcicetransport.py", line 324, in start
+    raise InvalidStateError("RTCIceTransport is closed")
+aiortc.exceptions.InvalidStateError: RTCIceTransport is closed

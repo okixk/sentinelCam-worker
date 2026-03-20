@@ -5,7 +5,7 @@ Smart Ultralytics YOLO webcam/stream runner with optional pose.
 
 Adds on top of the original script:
   - Model presets (including an automatic "yolo" preset that picks CPU/GPU defaults)
-  - Device "auto" mode (uses CUDA if available)
+  - Device "auto" mode (prefers CUDA, then Apple Metal/MPS, else CPU)
   - Hotkeys to cycle through presets at runtime (press 'm' / 'n')
   - Preset gating (e.g. "sam32" can be marked GPU-only)
 """
@@ -13,6 +13,7 @@ Adds on top of the original script:
 import argparse
 import math
 import os
+import platform
 import re
 import sys
 import time
@@ -197,21 +198,131 @@ def draw_top_right_label(frame, text, y=25, pad=10):
     draw_label(frame, x, y, text)
 
 
-def _open_capture(source: str, width: int, height: int):
+class SyntheticCapture:
+    """Small OpenCV-like capture source for cross-platform testing.
+
+    It lets Docker and local setups boot without a physical camera by generating
+    animated frames in-process.
+    """
+
+    def __init__(self, width: int, height: int, fps: float = 30.0):
+        self.width = max(160, int(width))
+        self.height = max(120, int(height))
+        self.fps = max(1.0, float(fps))
+        self._opened = True
+        self._started = time.time()
+        self._frame_index = 0
+
+    def isOpened(self) -> bool:  # noqa: N802
+        return self._opened
+
+    def release(self) -> None:
+        self._opened = False
+
+    def set(self, prop_id, value) -> bool:  # noqa: ANN001
+        try:
+            if int(prop_id) == int(cv2.CAP_PROP_FRAME_WIDTH):
+                self.width = max(160, int(value))
+                return True
+            if int(prop_id) == int(cv2.CAP_PROP_FRAME_HEIGHT):
+                self.height = max(120, int(value))
+                return True
+        except Exception:
+            return False
+        return True
+
+    def read(self):  # noqa: ANN201
+        if not self._opened:
+            return False, None
+
+        frame_period = 1.0 / self.fps
+        due_at = self._started + (self._frame_index * frame_period)
+        remaining = due_at - time.time()
+        if remaining > 0:
+            time.sleep(min(remaining, frame_period))
+
+        elapsed = max(0.0, time.time() - self._started)
+        self._frame_index += 1
+
+        x_grad = np.linspace(30, 130, self.width, dtype=np.uint8)
+        y_grad = np.linspace(20, 90, self.height, dtype=np.uint8)
+        frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        frame[:, :, 0] = x_grad
+        frame[:, :, 1] = y_grad[:, None]
+        frame[:, :, 2] = 45
+
+        cx = int((math.sin(elapsed * 1.1) * 0.4 + 0.5) * max(1, self.width - 1))
+        cy = int((math.cos(elapsed * 0.9) * 0.35 + 0.5) * max(1, self.height - 1))
+        radius = max(18, min(self.width, self.height) // 10)
+        cv2.circle(frame, (cx, cy), radius, (0, 215, 255), -1)
+
+        box_w = max(80, self.width // 5)
+        box_h = max(50, self.height // 6)
+        rect_x = int((math.sin(elapsed * 0.6 + 1.0) * 0.35 + 0.5) * max(1, self.width - box_w))
+        rect_y = int((math.sin(elapsed * 0.8 + 0.4) * 0.3 + 0.5) * max(1, self.height - box_h))
+        cv2.rectangle(frame, (rect_x, rect_y), (rect_x + box_w, rect_y + box_h), (255, 120, 0), -1)
+
+        cv2.putText(
+            frame,
+            "sentinelCam testsrc",
+            (18, 34),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame,
+            f"{self.width}x{self.height}  frame={self._frame_index}",
+            (18, 64),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (240, 240, 240),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame,
+            "Use WORKER_SOURCE=testsrc for Docker smoke tests",
+            (18, max(92, self.height - 26)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (230, 230, 230),
+            1,
+            cv2.LINE_AA,
+        )
+        return True, frame
+
+
+def _open_capture(source: str, width: int, height: int, requested_fps: float = 0.0):
     """OpenCV VideoCapture opener.
 
     - If source is a digit string -> webcam index
+    - testsrc/synthetic/dummy -> generated in-process frames
     - Otherwise -> URL/file/rtsp/http or /dev/videoX path
     """
+    normalized_source = str(source or "").strip().lower()
+    if normalized_source in ("testsrc", "synthetic", "dummy"):
+        fps = float(requested_fps) if float(requested_fps) > 0 else 30.0
+        return SyntheticCapture(width, height, fps=fps)
+
     if isinstance(source, str) and source.isdigit():
         cam_index = int(source)
         if sys.platform.startswith("win"):
             cap = cv2.VideoCapture(cam_index, cv2.CAP_DSHOW)
+        elif sys.platform == "darwin" and hasattr(cv2, "CAP_AVFOUNDATION"):
+            cap = cv2.VideoCapture(cam_index, cv2.CAP_AVFOUNDATION)
         else:
             cap = cv2.VideoCapture(cam_index)
 
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if float(requested_fps) > 0:
+            try:
+                cap.set(cv2.CAP_PROP_FPS, float(requested_fps))
+            except Exception:
+                pass
         return cap
 
     return cv2.VideoCapture(source)
@@ -227,19 +338,89 @@ def _cuda_available() -> bool:
         return False
 
 
+def _mps_available() -> bool:
+    try:
+        if torch is None:
+            return False
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is None:
+            return False
+        return bool(mps_backend.is_available() and mps_backend.is_built())
+    except Exception:
+        return False
+
+
+def _is_apple_silicon() -> bool:
+    return sys.platform == "darwin" and platform.machine().lower() in ("arm64", "aarch64")
+
+
+def _auto_device() -> str:
+    if _cuda_available():
+        return "0"
+    if _mps_available():
+        return "mps"
+    return "cpu"
+
+
 def resolve_device(device_arg: str) -> str:
     """Return an Ultralytics-compatible device value.
 
-    - "auto" -> "0" if CUDA available else "cpu"
+    - "auto" -> "0" if CUDA available, else "mps" if Apple Metal is available, else "cpu"
     - "cuda" / "cuda:0" -> "0"
+    - "mps" -> "mps"
     - otherwise passthrough ("cpu", "0", "1", ...)
     """
     d = (device_arg or "").strip().lower()
     if d in ("auto", ""):
-        return "0" if _cuda_available() else "cpu"
+        return _auto_device()
     if d.startswith("cuda"):
         return "0"
+    if d == "mps":
+        return "mps"
     return device_arg
+
+
+def _device_status_summary(device: str) -> str:
+    return (
+        f"resolved={device} "
+        f"(cuda_available={_cuda_available()}, "
+        f"mps_available={_mps_available()}, "
+        f"apple_silicon={_is_apple_silicon()})"
+    )
+
+
+def _system_memory_bytes() -> int:
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        phys_pages = int(os.sysconf("SC_PHYS_PAGES"))
+        if page_size > 0 and phys_pages > 0:
+            return page_size * phys_pages
+    except Exception:
+        return 0
+    return 0
+
+
+def _system_memory_gb() -> float:
+    total = _system_memory_bytes()
+    if total <= 0:
+        return 0.0
+    return float(total) / float(1024 ** 3)
+
+
+def _cuda_total_memory_gb(device: Optional[str] = None) -> float:
+    try:
+        if not _cuda_available():
+            return 0.0
+        index = 0
+        if isinstance(device, str) and device.strip().isdigit():
+            index = int(device.strip())
+        props = torch.cuda.get_device_properties(index)
+        total = float(getattr(props, "total_memory", 0.0) or 0.0)
+        if total <= 0:
+            return 0.0
+        return total / float(1024 ** 3)
+    except Exception:
+        return 0.0
 
 
 def _runtime_override_dir(env_name: str) -> Optional[str]:
@@ -618,6 +799,40 @@ def _env_int(name: str, default: int) -> int:
         return int(default)
 
 
+def _resolve_cpu_thread_budget(raw_value: int) -> int:
+    if int(raw_value) <= 0:
+        return max(1, int(os.cpu_count() or 1))
+    return max(1, int(raw_value))
+
+
+def _configure_cpu_threading(raw_value: int) -> int:
+    threads = _resolve_cpu_thread_budget(raw_value)
+
+    # Best-effort thread hints for common native backends used by NumPy / PyTorch / OpenCV.
+    os.environ["OMP_NUM_THREADS"] = str(threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(threads)
+    os.environ["MKL_NUM_THREADS"] = str(threads)
+    os.environ["NUMEXPR_MAX_THREADS"] = str(threads)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(threads)
+
+    try:
+        cv2.setNumThreads(threads)
+    except Exception:
+        pass
+
+    if torch is not None:
+        try:
+            torch.set_num_threads(threads)
+        except Exception:
+            pass
+        try:
+            torch.set_num_interop_threads(max(1, min(threads, 8)))
+        except Exception:
+            pass
+
+    return threads
+
+
 def _parse_allowed_origins(raw: str) -> Tuple[str, ...]:
     out: List[str] = []
     seen = set()
@@ -650,6 +865,221 @@ STREAM_QUALITY_PRESETS: Dict[str, Dict[str, int]] = {
     "high": {"width": 1280, "height": 720, "jpeg_quality": 88},
     "ultra": {"width": 1920, "height": 1080, "jpeg_quality": 92},
 }
+
+
+@dataclass(frozen=True)
+class RuntimeTuningProfile:
+    name: str
+    stream_quality: str
+    imgsz: int
+    webrtc_bitrate_kbps: int
+    pose_every: int
+    note: str
+    webrtc_fps: int = 30
+
+
+def _pick_runtime_tuning_profile(device: str, mode: str) -> RuntimeTuningProfile:
+    cpu_count = int(os.cpu_count() or 0)
+    mem_gb = _system_memory_gb()
+
+    if (mode or "").strip().lower() == "max":
+        if device == "cpu":
+            return RuntimeTuningProfile(
+                name="cpu-max",
+                stream_quality="ultra",
+                imgsz=1152,
+                webrtc_bitrate_kbps=6500,
+                pose_every=2,
+                note=f"forced max mode on CPU ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+                webrtc_fps=60,
+            )
+        if device == "mps":
+            return RuntimeTuningProfile(
+                name="apple-max",
+                stream_quality="ultra",
+                imgsz=1280,
+                webrtc_bitrate_kbps=9000,
+                pose_every=2,
+                note=f"forced max mode on Apple Silicon ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+                webrtc_fps=60,
+            )
+        return RuntimeTuningProfile(
+            name="cuda-max",
+            stream_quality="ultra",
+            imgsz=1280,
+            webrtc_bitrate_kbps=9000,
+            pose_every=2,
+            note=f"forced max mode on accelerated device ({_cuda_total_memory_gb(device):.1f} GiB VRAM)",
+            webrtc_fps=60,
+        )
+
+    if device == "mps":
+        if mem_gb >= 32 or cpu_count >= 10:
+            return RuntimeTuningProfile(
+                name="apple-performance",
+                stream_quality="ultra",
+                imgsz=1280,
+                webrtc_bitrate_kbps=9000,
+                pose_every=2,
+                note=f"Apple Silicon performance tier ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+                webrtc_fps=60,
+            )
+        if mem_gb >= 16:
+            return RuntimeTuningProfile(
+                name="apple-balanced",
+                stream_quality="ultra",
+                imgsz=1152,
+                webrtc_bitrate_kbps=7500,
+                pose_every=2,
+                note=f"Apple Silicon balanced tier ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+                webrtc_fps=60,
+            )
+        return RuntimeTuningProfile(
+            name="apple-efficient",
+            stream_quality="high",
+            imgsz=960,
+            webrtc_bitrate_kbps=5500,
+            pose_every=3,
+            note=f"Apple Silicon efficiency tier ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+        )
+
+    if device != "cpu":
+        vram_gb = _cuda_total_memory_gb(device)
+        if vram_gb >= 16:
+            return RuntimeTuningProfile(
+                name="cuda-performance",
+                stream_quality="ultra",
+                imgsz=1280,
+                webrtc_bitrate_kbps=9000,
+                pose_every=2,
+                note=f"CUDA high-memory tier ({vram_gb:.1f} GiB VRAM)",
+                webrtc_fps=60,
+            )
+        if vram_gb >= 8:
+            return RuntimeTuningProfile(
+                name="cuda-balanced",
+                stream_quality="ultra",
+                imgsz=1152,
+                webrtc_bitrate_kbps=7500,
+                pose_every=2,
+                note=f"CUDA balanced tier ({vram_gb:.1f} GiB VRAM)",
+                webrtc_fps=60,
+            )
+        return RuntimeTuningProfile(
+            name="cuda-efficient",
+            stream_quality="high",
+            imgsz=960,
+            webrtc_bitrate_kbps=5500,
+            pose_every=3,
+            note=f"CUDA entry tier ({vram_gb:.1f} GiB VRAM)",
+        )
+
+    if cpu_count >= 12 and mem_gb >= 24:
+        return RuntimeTuningProfile(
+            name="cpu-performance",
+            stream_quality="high",
+            imgsz=960,
+            webrtc_bitrate_kbps=5000,
+            pose_every=2,
+            note=f"strong CPU tier ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+        )
+    if cpu_count >= 8 and mem_gb >= 16:
+        return RuntimeTuningProfile(
+            name="cpu-balanced",
+            stream_quality="high",
+            imgsz=896,
+            webrtc_bitrate_kbps=4000,
+            pose_every=3,
+            note=f"balanced CPU tier ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+        )
+    return RuntimeTuningProfile(
+        name="cpu-efficient",
+        stream_quality="medium",
+        imgsz=832,
+        webrtc_bitrate_kbps=3000,
+        pose_every=4,
+        note=f"efficient CPU tier ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+    )
+
+
+def _apply_runtime_tuning(
+    args: argparse.Namespace,
+    argv: List[str],
+    device: str,
+) -> Optional[RuntimeTuningProfile]:
+    mode = (getattr(args, "performance_profile", "auto") or "auto").strip().lower()
+    if mode == "off":
+        return None
+
+    profile = _pick_runtime_tuning_profile(device, mode)
+
+    if not _has_cli_opt(argv, "--stream-quality") and (getattr(args, "stream_quality", "auto") or "auto").strip().lower() in ("", "auto"):
+        args.stream_quality = profile.stream_quality
+    if not _has_cli_opt(argv, "--imgsz"):
+        args.imgsz = int(profile.imgsz)
+    if not _has_cli_opt(argv, "--pose-every"):
+        args.pose_every = int(profile.pose_every)
+    if int(getattr(args, "webrtc_bitrate", -1)) < 0:
+        args.webrtc_bitrate = int(profile.webrtc_bitrate_kbps)
+    if int(getattr(args, "webrtc_fps", 0)) <= 0:
+        args.webrtc_fps = int(profile.webrtc_fps)
+
+    return profile
+
+
+def _resolve_webrtc_auto_defaults(
+    args: argparse.Namespace,
+    device: str,
+    tuning_profile: Optional[RuntimeTuningProfile],
+) -> None:
+    auto_profile = tuning_profile if tuning_profile is not None else _pick_runtime_tuning_profile(device, "auto")
+    if int(getattr(args, "webrtc_bitrate", -1)) < 0:
+        args.webrtc_bitrate = int(auto_profile.webrtc_bitrate_kbps)
+    if int(getattr(args, "webrtc_fps", 0)) <= 0:
+        args.webrtc_fps = int(auto_profile.webrtc_fps)
+
+
+def _requested_capture_fps(args: argparse.Namespace, source: str) -> float:
+    try:
+        explicit = float(getattr(args, "camera_fps", 0.0) or 0.0)
+    except Exception:
+        explicit = 0.0
+    if explicit > 0:
+        return explicit
+
+    if isinstance(source, str) and source.isdigit():
+        try:
+            webrtc_fps = float(getattr(args, "webrtc_fps", 0) or 0)
+        except Exception:
+            webrtc_fps = 0.0
+        try:
+            max_fps = float(getattr(args, "max_fps", 0) or 0)
+        except Exception:
+            max_fps = 0.0
+        if webrtc_fps > 0:
+            if max_fps > 0:
+                return min(webrtc_fps, max_fps)
+            return webrtc_fps
+    return 0.0
+
+
+def _capture_backend_name(cap) -> str:
+    try:
+        if hasattr(cap, "getBackendName"):
+            return str(cap.getBackendName() or "unknown")
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _capture_prop_float(cap, prop_id: int) -> float:
+    try:
+        value = float(cap.get(prop_id))
+        if math.isfinite(value):
+            return value
+    except Exception:
+        pass
+    return 0.0
 
 
 def _resolve_stream_quality_name(raw: str) -> str:
@@ -723,7 +1153,7 @@ def main():
         "--source",
         type=str,
         default=None,
-        help='Video source: webcam index (e.g. "0") OR URL/file (e.g. http://.../stream.mjpg or /dev/video42)',
+        help='Video source: webcam index (e.g. "0"), testsrc, or URL/file (e.g. http://.../stream.mjpg or /dev/video42)',
     )
     ap.add_argument("--cam", type=int, default=0, help="Webcam index (used when --source not set)")
 
@@ -733,7 +1163,24 @@ def main():
 
     # Performance / inference controls
     ap.add_argument("--max-fps", type=float, default=10.0)
-    ap.add_argument("--imgsz", type=int, default=832, help="Inference image size (bigger -> better small objects)")
+    ap.add_argument(
+        "--camera-fps",
+        type=float,
+        default=float(_env_int("DEFAULT_CAMERA_FPS", 0)),
+        help="Requested camera capture fps for webcam index sources (0 = auto; by default follows WebRTC fps when local camera is used).",
+    )
+    ap.add_argument(
+        "--imgsz",
+        type=int,
+        default=832,
+        help="Inference image size (bigger -> better small objects). Auto-tuning may raise this on stronger devices.",
+    )
+    ap.add_argument(
+        "--cpu-threads",
+        type=int,
+        default=_env_int("DEFAULT_CPU_THREADS", 0),
+        help="CPU thread budget for PyTorch/OpenCV (0 = auto = all logical cores).",
+    )
     ap.add_argument(
         "--infer-upscale",
         type=float,
@@ -765,7 +1212,14 @@ def main():
         "--device",
         type=str,
         default="auto",
-        help="Ultralytics device: 'auto', 'cpu' or GPU index like '0'",
+        help="Ultralytics device: 'auto', 'cpu', 'mps' or GPU index like '0'",
+    )
+    ap.add_argument(
+        "--performance-profile",
+        type=str,
+        default=(os.environ.get("DEFAULT_PERFORMANCE_PROFILE", "auto") or "auto").strip().lower(),
+        choices=["auto", "max", "off"],
+        help="Runtime auto-tuning: auto=hardware-aware defaults, max=aggressive quality, off=leave classic defaults unchanged.",
     )
 
     # Pose
@@ -785,7 +1239,12 @@ def main():
         default=None,
         help="Override: pose weights path/name (bypasses preset pose weights)",
     )
-    ap.add_argument("--pose-every", type=int, default=3, help="Run pose model every N frames (if --use-pose)")
+    ap.add_argument(
+        "--pose-every",
+        type=int,
+        default=3,
+        help="Run pose model every N frames (if --use-pose). Auto-tuning may lower this on stronger devices.",
+    )
     ap.add_argument("--pose-kpt-conf", type=float, default=0.35, help="Keypoint confidence threshold")
     ap.add_argument(
         "--no-draw-pose",
@@ -875,9 +1334,9 @@ def main():
     ap.add_argument(
         "--stream-quality",
         type=str,
-        default=(os.environ.get("DEFAULT_STREAM_QUALITY", "high") or "high").strip().lower(),
+        default=(os.environ.get("DEFAULT_STREAM_QUALITY", "auto") or "auto").strip().lower(),
         choices=["auto", "low", "medium", "high", "ultra"],
-        help="Capture + MJPEG quality preset. Affects default --width/--height and --jpeg-quality unless you override them explicitly.",
+        help="Capture + MJPEG quality preset. auto picks a hardware-aware default unless you override width/height explicitly.",
     )
     ap.add_argument(
         "--jpeg-quality",
@@ -895,8 +1354,14 @@ def main():
     ap.add_argument(
         "--webrtc-bitrate",
         type=int,
-        default=_env_int("DEFAULT_WEBRTC_BITRATE_KBPS", 2500),
-        help="Target WebRTC video bitrate in kbps (0 = aiortc default bitrate control).",
+        default=_env_int("DEFAULT_WEBRTC_BITRATE_KBPS", -1),
+        help="Target WebRTC video bitrate in kbps (-1 = hardware-aware auto, 0 = aiortc default bitrate control).",
+    )
+    ap.add_argument(
+        "--webrtc-fps",
+        type=int,
+        default=_env_int("DEFAULT_WEBRTC_FPS", 0),
+        help="Target WebRTC video fps (0 = hardware-aware auto).",
     )
     ap.add_argument(
         "--webrtc-port-min",
@@ -928,6 +1393,9 @@ def main():
 
     raw_argv = sys.argv[1:]
     args = ap.parse_args()
+    device = resolve_device(args.device)
+    tuning_profile = _apply_runtime_tuning(args, raw_argv, device)
+    _resolve_webrtc_auto_defaults(args, device, tuning_profile)
     stream_quality_name = _apply_stream_quality_profile(args, raw_argv)
 
     if args.help_web:
@@ -935,26 +1403,39 @@ def main():
         print("  --web/--no-web --stream webrtc|mjpeg|auto --host HOST --port PORT")
         print("  Default bind host: 127.0.0.1 (localhost only)")
         print("  Default stream mode: auto (WebRTC preferred, MJPEG fallback)")
-        print("  Default stream quality: high (1280x720, JPEG 88) unless overridden")
+        print("  Runtime tuning: --performance-profile auto|max|off")
+        print("  Default stream quality: hardware-aware auto (typically high or ultra) unless overridden")
         print("  Security: --web-auth-token TOKEN --web-allow-origin http://host:port[,http://host2:port]")
         print("  Optional debug: --window (show OpenCV preview + hotkeys)")
         print("  Worker-side WebRTC signaling endpoint: POST /api/webrtc/offer")
         print("  MJPEG fallback endpoint: GET /stream.mjpg")
-        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --webrtc-bitrate KBPS")
+        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --webrtc-bitrate KBPS (-1=hardware auto) --webrtc-fps FPS (0=hardware auto)")
         print("  WebRTC port range: --webrtc-port-min PORT --webrtc-port-max PORT")
         print("  WebRTC GPU: --webrtc-gpu 0|1  (1=auto-detect GPU encoder, 0=force CPU)")
         print("  Frame sharing: --webrtc-frame-sharing 0|1  (1=encode once for all clients)")
         print("  Stream quality: --stream-quality auto|low|medium|high|ultra")
         print("  MJPEG:  --jpeg-quality 10-95")
+        print("  CPU threads: --cpu-threads N  (0=auto=all logical cores)")
+        print("  Camera: --camera-fps FPS  (0=auto; local webcams follow WebRTC fps by default)")
         print("  Capture: --width W --height H --source N|URL")
         return
 
     if args.width <= 0 or args.height <= 0:
         raise SystemExit("--width and --height must be greater than 0.")
+    if float(args.camera_fps) < 0:
+        raise SystemExit("--camera-fps must be >= 0.")
+    if int(args.imgsz) <= 0:
+        raise SystemExit("--imgsz must be greater than 0.")
+    if int(args.cpu_threads) < 0:
+        raise SystemExit("--cpu-threads must be >= 0.")
+    if int(args.pose_every) <= 0:
+        raise SystemExit("--pose-every must be greater than 0.")
+    if int(args.webrtc_fps) < 0:
+        raise SystemExit("--webrtc-fps must be >= 0.")
     if not (10 <= int(args.jpeg_quality) <= 95):
         raise SystemExit("--jpeg-quality must be between 10 and 95.")
-    if int(args.webrtc_bitrate) < 0:
-        raise SystemExit("--webrtc-bitrate must be >= 0.")
+    if int(args.webrtc_bitrate) < -1:
+        raise SystemExit("--webrtc-bitrate must be >= -1.")
     if int(args.webrtc_port_min) < 0 or int(args.webrtc_port_max) < 0:
         raise SystemExit("--webrtc-port-min and --webrtc-port-max must be >= 0.")
     if (int(args.webrtc_port_min) > 0) != (int(args.webrtc_port_max) > 0):
@@ -1005,15 +1486,31 @@ def main():
         print_vcam_notes()
         return
 
+    effective_cpu_threads = _configure_cpu_threading(int(args.cpu_threads))
     setup_quiet_warnings(args.quiet_warnings)
 
     _configure_ultralytics_runtime_dirs()
 
-    device = resolve_device(args.device)
-    if device == "cpu":
-        _log.info("Device: cpu")
-    else:
-        _log.info("Device: %s (CUDA available=%s)", device, _cuda_available())
+    _log.info("Device: %s", _device_status_summary(device))
+    _log.info(
+        "CPU threading: requested=%d  effective=%d  cv2_threads=%d",
+        int(args.cpu_threads),
+        int(effective_cpu_threads),
+        int(cv2.getNumThreads()),
+    )
+    if tuning_profile is not None:
+        _log.info(
+            "Runtime tuning: %s  stream=%s  capture=%dx%d  imgsz=%d  webrtc=%d kbps @ %d fps  pose_every=%d  [%s]",
+            tuning_profile.name,
+            stream_quality_name,
+            int(args.width),
+            int(args.height),
+            int(args.imgsz),
+            int(args.webrtc_bitrate),
+            int(args.webrtc_fps),
+            int(args.pose_every),
+            tuning_profile.note,
+        )
 
     # Choose preset (unless user forces --model)
     active_preset_name, active_preset = pick_preset(args.preset, device, presets)
@@ -1096,7 +1593,8 @@ def main():
     names = det_model.names
 
     src = args.source if args.source is not None else str(args.cam)
-    cap = _open_capture(src, args.width, args.height)
+    capture_target_fps = _requested_capture_fps(args, src)
+    cap = _open_capture(src, args.width, args.height, requested_fps=capture_target_fps)
     if not cap.isOpened():
         cap.release()
         raise RuntimeError(f"Could not open source: {src}")
@@ -1106,6 +1604,22 @@ def main():
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     except Exception:
         pass
+
+    capture_backend = _capture_backend_name(cap)
+    capture_width_reported = _capture_prop_float(cap, int(cv2.CAP_PROP_FRAME_WIDTH))
+    capture_height_reported = _capture_prop_float(cap, int(cv2.CAP_PROP_FRAME_HEIGHT))
+    capture_fps_reported = _capture_prop_float(cap, int(cv2.CAP_PROP_FPS))
+    _log.info(
+        "Capture: source=%s backend=%s requested=%dx%d @ %.1f fps  reported=%dx%d @ %.1f fps",
+        src,
+        capture_backend,
+        int(args.width),
+        int(args.height),
+        float(capture_target_fps),
+        int(round(capture_width_reported or 0.0)),
+        int(round(capture_height_reported or 0.0)),
+        float(capture_fps_reported),
+    )
 
     # max_fps <= 0 => uncapped
     frame_interval = 0.0 if args.max_fps <= 0 else (1.0 / max(args.max_fps, 1e-6))
@@ -1142,6 +1656,9 @@ def main():
     web_state: Dict[str, object] = {
         "preset": active_preset_name,
         "device": device,
+        "capture_backend": capture_backend,
+        "capture_target_fps": float(capture_target_fps),
+        "capture_reported_fps": float(capture_fps_reported),
         "pose_enabled": pose_enabled,
         "overlay_enabled": overlay_enabled,
         "inference_enabled": inference_enabled,
@@ -1280,6 +1797,9 @@ def main():
 
     if web_enabled:
         hub = FrameHub(jpeg_quality=args.jpeg_quality)
+        raw_frame_hub = FrameHub(jpeg_quality=args.jpeg_quality)
+    else:
+        raw_frame_hub = None
 
     if window_enabled:
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -1555,6 +2075,10 @@ def main():
                 # so it becomes part of the raw source before any YOLO processing.
                 capture_stamp = time.strftime("%Y-%m-%d %H:%M:%S")
                 draw_top_right_label(frame, capture_stamp, y=25, pad=10)
+
+                # Save raw frame (with timestamp, without YOLO annotations) for /frame-raw.jpg
+                if raw_frame_hub is not None:
+                    raw_frame_hub.update(frame)
 
                 # Stream-only mode: no model inference, no overlay (raw frames only)
                 if not inference_enabled:
@@ -1908,8 +2432,14 @@ def main():
                     _log.info("State API: http://%s:%s/api/state", display_host, args.port)
                     if int(args.webrtc_bitrate) > 0:
                         _log.info("WebRTC target bitrate: %d kbps", int(args.webrtc_bitrate))
+                    elif int(args.webrtc_bitrate) < 0:
+                        _log.info("WebRTC target bitrate: hardware-aware auto")
                     else:
-                        _log.info("WebRTC target bitrate: auto")
+                        _log.info("WebRTC target bitrate: aiortc default")
+                    if int(args.webrtc_fps) > 0:
+                        _log.info("WebRTC target fps: %d", int(args.webrtc_fps))
+                    else:
+                        _log.info("WebRTC target fps: hardware-aware auto")
                     if int(args.webrtc_port_min) > 0:
                         _log.info("WebRTC ICE port range: %d-%d", int(args.webrtc_port_min), int(args.webrtc_port_max))
                     run_webrtc_server(
@@ -1921,10 +2451,12 @@ def main():
                         security=security,
                         codec_preference=args.webrtc_codec,
                         target_bitrate_kbps=int(args.webrtc_bitrate),
+                        target_fps=int(args.webrtc_fps),
                         ice_port_min=int(args.webrtc_port_min),
                         ice_port_max=int(args.webrtc_port_max),
                         use_gpu=bool(int(args.webrtc_gpu)),
                         use_frame_sharing=bool(int(args.webrtc_frame_sharing)),
+                        raw_hub=raw_frame_hub,
                     )
                 else:
                     if requested_mode == "auto" and run_webrtc_server is None:
@@ -1937,6 +2469,7 @@ def main():
                         control=ControlAPI(get_state=_get_state, command=_send_cmd),
                         stop_event=stop_event,
                         security=security,
+                        raw_hub=raw_frame_hub,
                     )
             except KeyboardInterrupt:
                 pass

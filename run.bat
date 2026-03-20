@@ -138,8 +138,11 @@ echo   WEB_AUTH_TOKEN=long-random-secret
 echo   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 echo Stream quality defaults in webcam.properties:
 echo   DEFAULT_STREAM_MODE=auto
-echo   DEFAULT_WEBRTC_BITRATE_KBPS=2500
-echo   DEFAULT_STREAM_QUALITY=high
+echo   DEFAULT_WEBRTC_BITRATE_KBPS=-1
+echo   DEFAULT_WEBRTC_FPS=0
+echo   DEFAULT_STREAM_QUALITY=auto
+echo   DEFAULT_CPU_THREADS=0
+echo   DEFAULT_CAMERA_FPS=0
 echo   DEFAULT_JPEG_QUALITY=88
 echo.
 echo Examples:
@@ -149,7 +152,9 @@ echo   run.bat --no-web
 echo   run.bat --window
 echo   run.bat --host 0.0.0.0 --port 8080
 echo   run.bat --stream webrtc
-echo   run.bat --webrtc-bitrate 2500
+echo   run.bat --webrtc-bitrate 8000
+echo   run.bat --webrtc-fps 60
+echo   run.bat --camera-fps 60
 echo   run.bat --stream-quality ultra
 exit /b 0
 
@@ -201,7 +206,7 @@ set "PIP_CACHE_DIR=%SCRIPT_DIR%%PIP_CACHE_DIR_LOCAL%"
 
 if "%DO_INSTALL%"=="1" (
   "%PYTHON_EXE%" -m pip install --upgrade pip wheel setuptools >nul 2>&1
-  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc av
+  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc "av==14.1.0; python_version < '3.13'" "av==16.1.0; python_version >= '3.13'"
   if errorlevel 1 exit /b 1
 ) else (
   echo Skipping install ^(--no-install^). Assuming venv + deps already exist.

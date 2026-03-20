@@ -25,8 +25,11 @@ Optional hardening in webcam.properties:
   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 Stream quality defaults in webcam.properties:
   DEFAULT_STREAM_MODE=auto
-  DEFAULT_WEBRTC_BITRATE_KBPS=2500
-  DEFAULT_STREAM_QUALITY=high
+  DEFAULT_WEBRTC_BITRATE_KBPS=-1
+  DEFAULT_WEBRTC_FPS=0
+  DEFAULT_STREAM_QUALITY=auto
+  DEFAULT_CPU_THREADS=0
+  DEFAULT_CAMERA_FPS=0
   DEFAULT_JPEG_QUALITY=88
 
 Examples:
@@ -36,7 +39,9 @@ Examples:
   ./run.sh --window                 # also show OpenCV preview window
   ./run.sh --host 0.0.0.0 --port 8080
   ./run.sh --stream webrtc
-  ./run.sh --webrtc-bitrate 2500
+  ./run.sh --webrtc-bitrate 8000
+  ./run.sh --webrtc-fps 60
+  ./run.sh --camera-fps 60
   ./run.sh --stream-quality ultra
 HELP
   exit 0
@@ -231,7 +236,9 @@ ensure_venv() {
 
 install_pip_deps() {
   python -m pip install --upgrade pip wheel setuptools >/dev/null
-  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc av
+  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc \
+    "av==14.1.0; python_version < '3.13'" \
+    "av==16.1.0; python_version >= '3.13'"
 }
 
 SILENT=0
@@ -274,7 +281,8 @@ elif [[ "$SILENT" == "1" ]]; then
 else
   read -r -p "Run setup/install step (venv + pip deps)? [Y/n]: " reply || true
   reply="${reply:-Y}"
-  if [[ "${reply,,}" == "n" || "${reply,,}" == "no" ]]; then
+  lower_reply="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$lower_reply" == "n" || "$lower_reply" == "no" ]]; then
     DO_INSTALL=0
   fi
 fi

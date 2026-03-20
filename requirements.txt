@@ -1,0 +1,8 @@
+ultralytics
+opencv-python-headless
+numpy
+lap>=0.5.12
+aiohttp
+aiortc
+av==14.1.0; python_version < "3.13"
+av==16.1.0; python_version >= "3.13"
