@@ -295,7 +295,7 @@ class SyntheticCapture:
         return True, frame
 
 
-def _open_capture(source: str, width: int, height: int):
+def _open_capture(source: str, width: int, height: int, requested_fps: float = 0.0):
     """OpenCV VideoCapture opener.
 
     - If source is a digit string -> webcam index
@@ -304,17 +304,25 @@ def _open_capture(source: str, width: int, height: int):
     """
     normalized_source = str(source or "").strip().lower()
     if normalized_source in ("testsrc", "synthetic", "dummy"):
-        return SyntheticCapture(width, height)
+        fps = float(requested_fps) if float(requested_fps) > 0 else 30.0
+        return SyntheticCapture(width, height, fps=fps)
 
     if isinstance(source, str) and source.isdigit():
         cam_index = int(source)
         if sys.platform.startswith("win"):
             cap = cv2.VideoCapture(cam_index, cv2.CAP_DSHOW)
+        elif sys.platform == "darwin" and hasattr(cv2, "CAP_AVFOUNDATION"):
+            cap = cv2.VideoCapture(cam_index, cv2.CAP_AVFOUNDATION)
         else:
             cap = cv2.VideoCapture(cam_index)
 
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if float(requested_fps) > 0:
+            try:
+                cap.set(cv2.CAP_PROP_FPS, float(requested_fps))
+            except Exception:
+                pass
         return cap
 
     return cv2.VideoCapture(source)
@@ -1031,6 +1039,49 @@ def _resolve_webrtc_auto_defaults(
         args.webrtc_fps = int(auto_profile.webrtc_fps)
 
 
+def _requested_capture_fps(args: argparse.Namespace, source: str) -> float:
+    try:
+        explicit = float(getattr(args, "camera_fps", 0.0) or 0.0)
+    except Exception:
+        explicit = 0.0
+    if explicit > 0:
+        return explicit
+
+    if isinstance(source, str) and source.isdigit():
+        try:
+            webrtc_fps = float(getattr(args, "webrtc_fps", 0) or 0)
+        except Exception:
+            webrtc_fps = 0.0
+        try:
+            max_fps = float(getattr(args, "max_fps", 0) or 0)
+        except Exception:
+            max_fps = 0.0
+        if webrtc_fps > 0:
+            if max_fps > 0:
+                return min(webrtc_fps, max_fps)
+            return webrtc_fps
+    return 0.0
+
+
+def _capture_backend_name(cap) -> str:
+    try:
+        if hasattr(cap, "getBackendName"):
+            return str(cap.getBackendName() or "unknown")
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _capture_prop_float(cap, prop_id: int) -> float:
+    try:
+        value = float(cap.get(prop_id))
+        if math.isfinite(value):
+            return value
+    except Exception:
+        pass
+    return 0.0
+
+
 def _resolve_stream_quality_name(raw: str) -> str:
     name = (raw or "high").strip().lower()
     if name in ("", "auto"):
@@ -1112,6 +1163,12 @@ def main():
 
     # Performance / inference controls
     ap.add_argument("--max-fps", type=float, default=10.0)
+    ap.add_argument(
+        "--camera-fps",
+        type=float,
+        default=float(_env_int("DEFAULT_CAMERA_FPS", 0)),
+        help="Requested camera capture fps for webcam index sources (0 = auto; by default follows WebRTC fps when local camera is used).",
+    )
     ap.add_argument(
         "--imgsz",
         type=int,
@@ -1359,11 +1416,14 @@ def main():
         print("  Stream quality: --stream-quality auto|low|medium|high|ultra")
         print("  MJPEG:  --jpeg-quality 10-95")
         print("  CPU threads: --cpu-threads N  (0=auto=all logical cores)")
+        print("  Camera: --camera-fps FPS  (0=auto; local webcams follow WebRTC fps by default)")
         print("  Capture: --width W --height H --source N|URL")
         return
 
     if args.width <= 0 or args.height <= 0:
         raise SystemExit("--width and --height must be greater than 0.")
+    if float(args.camera_fps) < 0:
+        raise SystemExit("--camera-fps must be >= 0.")
     if int(args.imgsz) <= 0:
         raise SystemExit("--imgsz must be greater than 0.")
     if int(args.cpu_threads) < 0:
@@ -1533,7 +1593,8 @@ def main():
     names = det_model.names
 
     src = args.source if args.source is not None else str(args.cam)
-    cap = _open_capture(src, args.width, args.height)
+    capture_target_fps = _requested_capture_fps(args, src)
+    cap = _open_capture(src, args.width, args.height, requested_fps=capture_target_fps)
     if not cap.isOpened():
         cap.release()
         raise RuntimeError(f"Could not open source: {src}")
@@ -1543,6 +1604,22 @@ def main():
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     except Exception:
         pass
+
+    capture_backend = _capture_backend_name(cap)
+    capture_width_reported = _capture_prop_float(cap, int(cv2.CAP_PROP_FRAME_WIDTH))
+    capture_height_reported = _capture_prop_float(cap, int(cv2.CAP_PROP_FRAME_HEIGHT))
+    capture_fps_reported = _capture_prop_float(cap, int(cv2.CAP_PROP_FPS))
+    _log.info(
+        "Capture: source=%s backend=%s requested=%dx%d @ %.1f fps  reported=%dx%d @ %.1f fps",
+        src,
+        capture_backend,
+        int(args.width),
+        int(args.height),
+        float(capture_target_fps),
+        int(round(capture_width_reported or 0.0)),
+        int(round(capture_height_reported or 0.0)),
+        float(capture_fps_reported),
+    )
 
     # max_fps <= 0 => uncapped
     frame_interval = 0.0 if args.max_fps <= 0 else (1.0 / max(args.max_fps, 1e-6))
@@ -1579,6 +1656,9 @@ def main():
     web_state: Dict[str, object] = {
         "preset": active_preset_name,
         "device": device,
+        "capture_backend": capture_backend,
+        "capture_target_fps": float(capture_target_fps),
+        "capture_reported_fps": float(capture_fps_reported),
         "pose_enabled": pose_enabled,
         "overlay_enabled": overlay_enabled,
         "inference_enabled": inference_enabled,

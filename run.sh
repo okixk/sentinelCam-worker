@@ -29,6 +29,7 @@ Stream quality defaults in webcam.properties:
   DEFAULT_WEBRTC_FPS=0
   DEFAULT_STREAM_QUALITY=auto
   DEFAULT_CPU_THREADS=0
+  DEFAULT_CAMERA_FPS=0
   DEFAULT_JPEG_QUALITY=88
 
 Examples:
@@ -40,6 +41,7 @@ Examples:
   ./run.sh --stream webrtc
   ./run.sh --webrtc-bitrate 8000
   ./run.sh --webrtc-fps 60
+  ./run.sh --camera-fps 60
   ./run.sh --stream-quality ultra
 HELP
   exit 0

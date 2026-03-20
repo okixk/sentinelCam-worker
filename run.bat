@@ -142,6 +142,7 @@ echo   DEFAULT_WEBRTC_BITRATE_KBPS=-1
 echo   DEFAULT_WEBRTC_FPS=0
 echo   DEFAULT_STREAM_QUALITY=auto
 echo   DEFAULT_CPU_THREADS=0
+echo   DEFAULT_CAMERA_FPS=0
 echo   DEFAULT_JPEG_QUALITY=88
 echo.
 echo Examples:
@@ -153,6 +154,7 @@ echo   run.bat --host 0.0.0.0 --port 8080
 echo   run.bat --stream webrtc
 echo   run.bat --webrtc-bitrate 8000
 echo   run.bat --webrtc-fps 60
+echo   run.bat --camera-fps 60
 echo   run.bat --stream-quality ultra
 exit /b 0
 

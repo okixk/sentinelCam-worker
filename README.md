@@ -146,6 +146,12 @@ Use 60 fps WebRTC on capable hardware:
 ./run.sh --webrtc-fps 60
 ```
 
+Request 60 fps from a local webcam too:
+
+```bash
+./run.sh --webrtc-fps 60 --camera-fps 60
+```
+
 Force MJPEG only:
 
 ```bash
@@ -215,6 +221,7 @@ Important defaults:
 - `DEFAULT_WEBRTC_FRAME_SHARING=1` (encode once, share to all clients)
 - `DEFAULT_STREAM_QUALITY=auto`
 - `DEFAULT_CPU_THREADS=0` (`0` = auto = all logical cores)
+- `DEFAULT_CAMERA_FPS=0` (`0` = auto; local webcam sources follow WebRTC fps by default)
 - `DEFAULT_JPEG_QUALITY=88`
 
 Useful security-related settings:
