@@ -65,6 +65,8 @@ The launcher can:
 
 By default, the worker binds to `127.0.0.1` and uses `DEFAULT_STREAM_MODE=auto`, which prefers WebRTC when available and keeps MJPEG as fallback.
 
+On Apple Silicon, `DEFAULT_DEVICE=auto` prefers PyTorch `mps` for inference and WebRTC H.264 can use Apple VideoToolbox when available.
+
 ## Stream modes
 
 The worker supports three web stream modes:
@@ -146,10 +148,22 @@ Use 60 fps WebRTC on capable hardware:
 ./run.sh --webrtc-fps 60
 ```
 
+Use the strongest hardware-aware tuning profile:
+
+```bash
+./run.sh --performance-profile max
+```
+
 Request 60 fps from a local webcam too:
 
 ```bash
 ./run.sh --webrtc-fps 60 --camera-fps 60
+```
+
+Force Apple Silicon GPU inference explicitly:
+
+```bash
+./run.sh --device mps
 ```
 
 Force MJPEG only:
@@ -162,6 +176,12 @@ Use a higher stream quality preset:
 
 ```bash
 ./run.sh --stream-quality ultra
+```
+
+If the video looks softer when the model / overlay is active, raise the bitrate or disable the overlay:
+
+```bash
+./run.sh --webrtc-bitrate 12000
 ```
 
 Window only:
@@ -211,9 +231,10 @@ Shared launcher defaults live in `webcam.properties`.
 
 Important defaults:
 
+- `DEFAULT_DEVICE=auto` (`auto` prefers CUDA, then Apple `mps`, otherwise CPU)
 - `DEFAULT_WEB_HOST=127.0.0.1`
 - `DEFAULT_STREAM_MODE=auto`
-- `DEFAULT_PERFORMANCE_PROFILE=auto`
+- `DEFAULT_PERFORMANCE_PROFILE=auto` (hardware-aware auto-tuning for stream quality, YOLO image size, WebRTC bitrate/FPS, and pose cadence)
 - `DEFAULT_WEBRTC_BITRATE_KBPS=-1` (`-1` = hardware-aware auto)
 - `DEFAULT_WEBRTC_FPS=0` (`0` = hardware-aware auto, typically `60` on stronger GPUs)
 - `DEFAULT_WEBRTC_PORT_MIN=50000` / `DEFAULT_WEBRTC_PORT_MAX=51000`
@@ -293,8 +314,8 @@ docker run --rm -p 127.0.0.1:8080:8080 -p 50000-51000:50000-51000/udp sentinelca
 
 ### Environment Variables
 
-- `WEB_AUTH_TOKEN` — Bearer token for API authentication
-- `WEB_ALLOWED_ORIGINS` — Comma-separated CORS origin whitelist
+- `WEB_AUTH_TOKEN` - Bearer token for API authentication
+- `WEB_ALLOWED_ORIGINS` - Comma-separated CORS origin whitelist
 
 Example:
 
@@ -364,9 +385,11 @@ WORKER_VIDEO_DEVICE=/dev/video2 docker compose -f docker-compose.worker.yml -f d
 - For remote browser access, prefer a reverse proxy or the `sentinelCam-web` local web server instead of exposing the worker directly.
 - If you enable worker auth, the browser UI should usually connect through the proxy/web server, which injects the worker token server-side.
 - WebRTC support requires `aiohttp`, `aiortc`, and `av`.
-- GPU H.264 encoding is auto-detected at startup (NVIDIA NVENC → AMD AMF → Intel QSV → CPU libx264). Disable with `--webrtc-gpu 0` if needed.
-- Frame sharing encodes each video frame once and distributes the encoded packets to all connected WebRTC clients, significantly reducing CPU/GPU load with multiple viewers.
-- WebRTC ICE UDP ports default to 50000–51000 for easier firewall configuration. Set both to `0` for OS-assigned ports.
+- GPU H.264 encoding is auto-detected at startup (NVIDIA NVENC -> AMD AMF -> Intel QSV -> Apple VideoToolbox -> CPU libx264). Disable with `--webrtc-gpu 0` if needed.
+- The `fps` value shown in the worker state / UI is the worker loop or capture FPS, not necessarily the browser's actual decoded WebRTC FPS.
+- When the model overlay is burned into the video, the picture can look worse at the same bitrate because boxes and text are harder to compress than the raw camera image. Raising `--webrtc-bitrate` or turning overlay off improves this.
+- The `--webrtc-frame-sharing` flag remains available, but the current WebRTC path may still fall back to aiortc's normal per-client frame flow depending on the active encoder path.
+- WebRTC ICE UDP ports default to `50000-51000` for easier firewall configuration. Set both to `0` for OS-assigned ports.
 
 ## Status
 
