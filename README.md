@@ -224,6 +224,7 @@ Useful security-related settings:
 - `webcam.properties` - shared launcher defaults
 - `Dockerfile` - multi-stage Docker build (Python 3.12-slim)
 - `docker-compose.worker.yml` - Docker Compose config
+- `docker-compose.linux.yml` - optional Linux host-network override for loopback-only workers
 - `docker-compose.worker-cam.yml` - optional Linux webcam passthrough override
 - `.dockerignore` - excludes `.git`, caches, and non-runtime files from the image
 - `requirements.txt` - Python dependencies for Docker and pip installs
@@ -313,11 +314,26 @@ Use a remote stream on any platform:
 WORKER_SOURCE=rtsp://HOST:PORT/stream docker compose -f docker-compose.worker.yml up -d --build
 ```
 
+For a loopback-only worker on Linux (useful with the legacy `sentinelCam-web`
+`docker-compose.linux.yml` override that proxies to `http://127.0.0.1:8080`):
+
+```bash
+docker compose -f docker-compose.worker.yml -f docker-compose.linux.yml up -d --build
+```
+
 Use a real webcam on Linux only:
 
 ```bash
 docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
 ```
+
+Use a real webcam on Linux with loopback-only host networking:
+
+```bash
+WORKER_SOURCE=0 docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml -f docker-compose.linux.yml up -d --build
+```
+
+Keep `docker-compose.linux.yml` last so its loopback-only bind overrides the webcam compose command.
 
 Use a different Linux camera device:
 
@@ -328,6 +344,7 @@ WORKER_VIDEO_DEVICE=/dev/video2 docker compose -f docker-compose.worker.yml -f d
 ## Notes
 
 - The worker binds to localhost by default for safer local use.
+- If `sentinelCam-web` runs in Docker on Linux, the default web compose expects the worker to be reachable through `host.docker.internal:8080`. A locally started worker should use `./run.sh --host 0.0.0.0`. If the worker stays on `127.0.0.1`, use the legacy `docker-compose.linux.yml` override in the web repo, and this repo's `docker-compose.linux.yml` too when the worker itself also runs in Docker.
 - For remote browser access, prefer a reverse proxy or the `sentinelCam-web` local web server instead of exposing the worker directly.
 - If you enable worker auth, the browser UI should usually connect through the proxy/web server, which injects the worker token server-side.
 - WebRTC support requires `aiohttp`, `aiortc`, and `av`.
