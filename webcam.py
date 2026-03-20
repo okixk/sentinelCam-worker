@@ -5,7 +5,7 @@ Smart Ultralytics YOLO webcam/stream runner with optional pose.
 
 Adds on top of the original script:
   - Model presets (including an automatic "yolo" preset that picks CPU/GPU defaults)
-  - Device "auto" mode (uses CUDA if available)
+  - Device "auto" mode (prefers CUDA, then Apple Metal/MPS, else CPU)
   - Hotkeys to cycle through presets at runtime (press 'm' / 'n')
   - Preset gating (e.g. "sam32" can be marked GPU-only)
 """
@@ -13,6 +13,7 @@ Adds on top of the original script:
 import argparse
 import math
 import os
+import platform
 import re
 import sys
 import time
@@ -329,19 +330,55 @@ def _cuda_available() -> bool:
         return False
 
 
+def _mps_available() -> bool:
+    try:
+        if torch is None:
+            return False
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is None:
+            return False
+        return bool(mps_backend.is_available() and mps_backend.is_built())
+    except Exception:
+        return False
+
+
+def _is_apple_silicon() -> bool:
+    return sys.platform == "darwin" and platform.machine().lower() in ("arm64", "aarch64")
+
+
+def _auto_device() -> str:
+    if _cuda_available():
+        return "0"
+    if _mps_available():
+        return "mps"
+    return "cpu"
+
+
 def resolve_device(device_arg: str) -> str:
     """Return an Ultralytics-compatible device value.
 
-    - "auto" -> "0" if CUDA available else "cpu"
+    - "auto" -> "0" if CUDA available, else "mps" if Apple Metal is available, else "cpu"
     - "cuda" / "cuda:0" -> "0"
+    - "mps" -> "mps"
     - otherwise passthrough ("cpu", "0", "1", ...)
     """
     d = (device_arg or "").strip().lower()
     if d in ("auto", ""):
-        return "0" if _cuda_available() else "cpu"
+        return _auto_device()
     if d.startswith("cuda"):
         return "0"
+    if d == "mps":
+        return "mps"
     return device_arg
+
+
+def _device_status_summary(device: str) -> str:
+    return (
+        f"resolved={device} "
+        f"(cuda_available={_cuda_available()}, "
+        f"mps_available={_mps_available()}, "
+        f"apple_silicon={_is_apple_silicon()})"
+    )
 
 
 def _runtime_override_dir(env_name: str) -> Optional[str]:
@@ -867,7 +904,7 @@ def main():
         "--device",
         type=str,
         default="auto",
-        help="Ultralytics device: 'auto', 'cpu' or GPU index like '0'",
+        help="Ultralytics device: 'auto', 'cpu', 'mps' or GPU index like '0'",
     )
 
     # Pose
@@ -1112,10 +1149,7 @@ def main():
     _configure_ultralytics_runtime_dirs()
 
     device = resolve_device(args.device)
-    if device == "cpu":
-        _log.info("Device: cpu")
-    else:
-        _log.info("Device: %s (CUDA available=%s)", device, _cuda_available())
+    _log.info("Device: %s", _device_status_summary(device))
 
     # Choose preset (unless user forces --model)
     active_preset_name, active_preset = pick_preset(args.preset, device, presets)
