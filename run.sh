@@ -274,7 +274,8 @@ elif [[ "$SILENT" == "1" ]]; then
 else
   read -r -p "Run setup/install step (venv + pip deps)? [Y/n]: " reply || true
   reply="${reply:-Y}"
-  if [[ "${reply,,}" == "n" || "${reply,,}" == "no" ]]; then
+  lower_reply="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$lower_reply" == "n" || "$lower_reply" == "no" ]]; then
     DO_INSTALL=0
   fi
 fi
