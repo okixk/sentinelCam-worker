@@ -207,6 +207,7 @@ Important defaults:
 - `DEFAULT_WEBRTC_GPU=1` (auto-detect GPU encoder; `0` = force CPU)
 - `DEFAULT_WEBRTC_FRAME_SHARING=1` (encode once, share to all clients)
 - `DEFAULT_STREAM_QUALITY=auto`
+- `DEFAULT_CPU_THREADS=0` (`0` = auto = all logical cores)
 - `DEFAULT_JPEG_QUALITY=88`
 
 Useful security-related settings:

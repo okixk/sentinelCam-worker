@@ -791,6 +791,40 @@ def _env_int(name: str, default: int) -> int:
         return int(default)
 
 
+def _resolve_cpu_thread_budget(raw_value: int) -> int:
+    if int(raw_value) <= 0:
+        return max(1, int(os.cpu_count() or 1))
+    return max(1, int(raw_value))
+
+
+def _configure_cpu_threading(raw_value: int) -> int:
+    threads = _resolve_cpu_thread_budget(raw_value)
+
+    # Best-effort thread hints for common native backends used by NumPy / PyTorch / OpenCV.
+    os.environ["OMP_NUM_THREADS"] = str(threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(threads)
+    os.environ["MKL_NUM_THREADS"] = str(threads)
+    os.environ["NUMEXPR_MAX_THREADS"] = str(threads)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(threads)
+
+    try:
+        cv2.setNumThreads(threads)
+    except Exception:
+        pass
+
+    if torch is not None:
+        try:
+            torch.set_num_threads(threads)
+        except Exception:
+            pass
+        try:
+            torch.set_num_interop_threads(max(1, min(threads, 8)))
+        except Exception:
+            pass
+
+    return threads
+
+
 def _parse_allowed_origins(raw: str) -> Tuple[str, ...]:
     out: List[str] = []
     seen = set()
@@ -1063,6 +1097,12 @@ def main():
         help="Inference image size (bigger -> better small objects). Auto-tuning may raise this on stronger devices.",
     )
     ap.add_argument(
+        "--cpu-threads",
+        type=int,
+        default=_env_int("DEFAULT_CPU_THREADS", 0),
+        help="CPU thread budget for PyTorch/OpenCV (0 = auto = all logical cores).",
+    )
+    ap.add_argument(
         "--infer-upscale",
         type=float,
         default=1.0,
@@ -1289,6 +1329,7 @@ def main():
         print("  Frame sharing: --webrtc-frame-sharing 0|1  (1=encode once for all clients)")
         print("  Stream quality: --stream-quality auto|low|medium|high|ultra")
         print("  MJPEG:  --jpeg-quality 10-95")
+        print("  CPU threads: --cpu-threads N  (0=auto=all logical cores)")
         print("  Capture: --width W --height H --source N|URL")
         return
 
@@ -1296,6 +1337,8 @@ def main():
         raise SystemExit("--width and --height must be greater than 0.")
     if int(args.imgsz) <= 0:
         raise SystemExit("--imgsz must be greater than 0.")
+    if int(args.cpu_threads) < 0:
+        raise SystemExit("--cpu-threads must be >= 0.")
     if int(args.pose_every) <= 0:
         raise SystemExit("--pose-every must be greater than 0.")
     if not (10 <= int(args.jpeg_quality) <= 95):
@@ -1352,11 +1395,18 @@ def main():
         print_vcam_notes()
         return
 
+    effective_cpu_threads = _configure_cpu_threading(int(args.cpu_threads))
     setup_quiet_warnings(args.quiet_warnings)
 
     _configure_ultralytics_runtime_dirs()
 
     _log.info("Device: %s", _device_status_summary(device))
+    _log.info(
+        "CPU threading: requested=%d  effective=%d  cv2_threads=%d",
+        int(args.cpu_threads),
+        int(effective_cpu_threads),
+        int(cv2.getNumThreads()),
+    )
     if tuning_profile is not None:
         _log.info(
             "Runtime tuning: %s  stream=%s  capture=%dx%d  imgsz=%d  webrtc=%d kbps  pose_every=%d  [%s]",

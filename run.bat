@@ -140,6 +140,7 @@ echo Stream quality defaults in webcam.properties:
 echo   DEFAULT_STREAM_MODE=auto
 echo   DEFAULT_WEBRTC_BITRATE_KBPS=-1
 echo   DEFAULT_STREAM_QUALITY=auto
+echo   DEFAULT_CPU_THREADS=0
 echo   DEFAULT_JPEG_QUALITY=88
 echo.
 echo Examples:

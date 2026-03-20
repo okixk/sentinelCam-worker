@@ -27,6 +27,7 @@ Stream quality defaults in webcam.properties:
   DEFAULT_STREAM_MODE=auto
   DEFAULT_WEBRTC_BITRATE_KBPS=-1
   DEFAULT_STREAM_QUALITY=auto
+  DEFAULT_CPU_THREADS=0
   DEFAULT_JPEG_QUALITY=88
 
 Examples:
