@@ -138,8 +138,8 @@ echo   WEB_AUTH_TOKEN=long-random-secret
 echo   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 echo Stream quality defaults in webcam.properties:
 echo   DEFAULT_STREAM_MODE=auto
-echo   DEFAULT_WEBRTC_BITRATE_KBPS=2500
-echo   DEFAULT_STREAM_QUALITY=high
+echo   DEFAULT_WEBRTC_BITRATE_KBPS=-1
+echo   DEFAULT_STREAM_QUALITY=auto
 echo   DEFAULT_JPEG_QUALITY=88
 echo.
 echo Examples:
@@ -149,7 +149,7 @@ echo   run.bat --no-web
 echo   run.bat --window
 echo   run.bat --host 0.0.0.0 --port 8080
 echo   run.bat --stream webrtc
-echo   run.bat --webrtc-bitrate 2500
+echo   run.bat --webrtc-bitrate 8000
 echo   run.bat --stream-quality ultra
 exit /b 0
 

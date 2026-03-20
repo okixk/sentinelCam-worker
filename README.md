@@ -137,7 +137,7 @@ Force WebRTC:
 Use a higher WebRTC bitrate:
 
 ```bash
-./run.sh --webrtc-bitrate 2500
+./run.sh --webrtc-bitrate 8000
 ```
 
 Force MJPEG only:
@@ -201,11 +201,12 @@ Important defaults:
 
 - `DEFAULT_WEB_HOST=127.0.0.1`
 - `DEFAULT_STREAM_MODE=auto`
-- `DEFAULT_WEBRTC_BITRATE_KBPS=2500`
+- `DEFAULT_PERFORMANCE_PROFILE=auto`
+- `DEFAULT_WEBRTC_BITRATE_KBPS=-1` (`-1` = hardware-aware auto)
 - `DEFAULT_WEBRTC_PORT_MIN=50000` / `DEFAULT_WEBRTC_PORT_MAX=51000`
 - `DEFAULT_WEBRTC_GPU=1` (auto-detect GPU encoder; `0` = force CPU)
 - `DEFAULT_WEBRTC_FRAME_SHARING=1` (encode once, share to all clients)
-- `DEFAULT_STREAM_QUALITY=high`
+- `DEFAULT_STREAM_QUALITY=auto`
 - `DEFAULT_JPEG_QUALITY=88`
 
 Useful security-related settings:

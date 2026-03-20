@@ -381,6 +381,40 @@ def _device_status_summary(device: str) -> str:
     )
 
 
+def _system_memory_bytes() -> int:
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        phys_pages = int(os.sysconf("SC_PHYS_PAGES"))
+        if page_size > 0 and phys_pages > 0:
+            return page_size * phys_pages
+    except Exception:
+        return 0
+    return 0
+
+
+def _system_memory_gb() -> float:
+    total = _system_memory_bytes()
+    if total <= 0:
+        return 0.0
+    return float(total) / float(1024 ** 3)
+
+
+def _cuda_total_memory_gb(device: Optional[str] = None) -> float:
+    try:
+        if not _cuda_available():
+            return 0.0
+        index = 0
+        if isinstance(device, str) and device.strip().isdigit():
+            index = int(device.strip())
+        props = torch.cuda.get_device_properties(index)
+        total = float(getattr(props, "total_memory", 0.0) or 0.0)
+        if total <= 0:
+            return 0.0
+        return total / float(1024 ** 3)
+    except Exception:
+        return 0.0
+
+
 def _runtime_override_dir(env_name: str) -> Optional[str]:
     v = (os.environ.get(env_name) or "").strip()
     return v or None
@@ -791,6 +825,156 @@ STREAM_QUALITY_PRESETS: Dict[str, Dict[str, int]] = {
 }
 
 
+@dataclass(frozen=True)
+class RuntimeTuningProfile:
+    name: str
+    stream_quality: str
+    imgsz: int
+    webrtc_bitrate_kbps: int
+    pose_every: int
+    note: str
+
+
+def _pick_runtime_tuning_profile(device: str, mode: str) -> RuntimeTuningProfile:
+    cpu_count = int(os.cpu_count() or 0)
+    mem_gb = _system_memory_gb()
+
+    if (mode or "").strip().lower() == "max":
+        if device == "cpu":
+            return RuntimeTuningProfile(
+                name="cpu-max",
+                stream_quality="ultra",
+                imgsz=1152,
+                webrtc_bitrate_kbps=6500,
+                pose_every=2,
+                note=f"forced max mode on CPU ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+            )
+        if device == "mps":
+            return RuntimeTuningProfile(
+                name="apple-max",
+                stream_quality="ultra",
+                imgsz=1280,
+                webrtc_bitrate_kbps=9000,
+                pose_every=2,
+                note=f"forced max mode on Apple Silicon ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+            )
+        return RuntimeTuningProfile(
+            name="cuda-max",
+            stream_quality="ultra",
+            imgsz=1280,
+            webrtc_bitrate_kbps=9000,
+            pose_every=2,
+            note=f"forced max mode on accelerated device ({_cuda_total_memory_gb(device):.1f} GiB VRAM)",
+        )
+
+    if device == "mps":
+        if mem_gb >= 32 or cpu_count >= 10:
+            return RuntimeTuningProfile(
+                name="apple-performance",
+                stream_quality="ultra",
+                imgsz=1280,
+                webrtc_bitrate_kbps=9000,
+                pose_every=2,
+                note=f"Apple Silicon performance tier ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+            )
+        if mem_gb >= 16:
+            return RuntimeTuningProfile(
+                name="apple-balanced",
+                stream_quality="ultra",
+                imgsz=1152,
+                webrtc_bitrate_kbps=7500,
+                pose_every=2,
+                note=f"Apple Silicon balanced tier ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+            )
+        return RuntimeTuningProfile(
+            name="apple-efficient",
+            stream_quality="high",
+            imgsz=960,
+            webrtc_bitrate_kbps=5500,
+            pose_every=3,
+            note=f"Apple Silicon efficiency tier ({cpu_count} logical cores, {mem_gb:.1f} GiB unified memory)",
+        )
+
+    if device != "cpu":
+        vram_gb = _cuda_total_memory_gb(device)
+        if vram_gb >= 16:
+            return RuntimeTuningProfile(
+                name="cuda-performance",
+                stream_quality="ultra",
+                imgsz=1280,
+                webrtc_bitrate_kbps=9000,
+                pose_every=2,
+                note=f"CUDA high-memory tier ({vram_gb:.1f} GiB VRAM)",
+            )
+        if vram_gb >= 8:
+            return RuntimeTuningProfile(
+                name="cuda-balanced",
+                stream_quality="ultra",
+                imgsz=1152,
+                webrtc_bitrate_kbps=7500,
+                pose_every=2,
+                note=f"CUDA balanced tier ({vram_gb:.1f} GiB VRAM)",
+            )
+        return RuntimeTuningProfile(
+            name="cuda-efficient",
+            stream_quality="high",
+            imgsz=960,
+            webrtc_bitrate_kbps=5500,
+            pose_every=3,
+            note=f"CUDA entry tier ({vram_gb:.1f} GiB VRAM)",
+        )
+
+    if cpu_count >= 12 and mem_gb >= 24:
+        return RuntimeTuningProfile(
+            name="cpu-performance",
+            stream_quality="high",
+            imgsz=960,
+            webrtc_bitrate_kbps=5000,
+            pose_every=2,
+            note=f"strong CPU tier ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+        )
+    if cpu_count >= 8 and mem_gb >= 16:
+        return RuntimeTuningProfile(
+            name="cpu-balanced",
+            stream_quality="high",
+            imgsz=896,
+            webrtc_bitrate_kbps=4000,
+            pose_every=3,
+            note=f"balanced CPU tier ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+        )
+    return RuntimeTuningProfile(
+        name="cpu-efficient",
+        stream_quality="medium",
+        imgsz=832,
+        webrtc_bitrate_kbps=3000,
+        pose_every=4,
+        note=f"efficient CPU tier ({cpu_count} logical cores, {mem_gb:.1f} GiB RAM)",
+    )
+
+
+def _apply_runtime_tuning(
+    args: argparse.Namespace,
+    argv: List[str],
+    device: str,
+) -> Optional[RuntimeTuningProfile]:
+    mode = (getattr(args, "performance_profile", "auto") or "auto").strip().lower()
+    if mode == "off":
+        return None
+
+    profile = _pick_runtime_tuning_profile(device, mode)
+
+    if not _has_cli_opt(argv, "--stream-quality") and (getattr(args, "stream_quality", "auto") or "auto").strip().lower() in ("", "auto"):
+        args.stream_quality = profile.stream_quality
+    if not _has_cli_opt(argv, "--imgsz"):
+        args.imgsz = int(profile.imgsz)
+    if not _has_cli_opt(argv, "--pose-every"):
+        args.pose_every = int(profile.pose_every)
+    if int(getattr(args, "webrtc_bitrate", -1)) < 0:
+        args.webrtc_bitrate = int(profile.webrtc_bitrate_kbps)
+
+    return profile
+
+
 def _resolve_stream_quality_name(raw: str) -> str:
     name = (raw or "high").strip().lower()
     if name in ("", "auto"):
@@ -872,7 +1056,12 @@ def main():
 
     # Performance / inference controls
     ap.add_argument("--max-fps", type=float, default=10.0)
-    ap.add_argument("--imgsz", type=int, default=832, help="Inference image size (bigger -> better small objects)")
+    ap.add_argument(
+        "--imgsz",
+        type=int,
+        default=832,
+        help="Inference image size (bigger -> better small objects). Auto-tuning may raise this on stronger devices.",
+    )
     ap.add_argument(
         "--infer-upscale",
         type=float,
@@ -906,6 +1095,13 @@ def main():
         default="auto",
         help="Ultralytics device: 'auto', 'cpu', 'mps' or GPU index like '0'",
     )
+    ap.add_argument(
+        "--performance-profile",
+        type=str,
+        default=(os.environ.get("DEFAULT_PERFORMANCE_PROFILE", "auto") or "auto").strip().lower(),
+        choices=["auto", "max", "off"],
+        help="Runtime auto-tuning: auto=hardware-aware defaults, max=aggressive quality, off=leave classic defaults unchanged.",
+    )
 
     # Pose
     ap.add_argument(
@@ -924,7 +1120,12 @@ def main():
         default=None,
         help="Override: pose weights path/name (bypasses preset pose weights)",
     )
-    ap.add_argument("--pose-every", type=int, default=3, help="Run pose model every N frames (if --use-pose)")
+    ap.add_argument(
+        "--pose-every",
+        type=int,
+        default=3,
+        help="Run pose model every N frames (if --use-pose). Auto-tuning may lower this on stronger devices.",
+    )
     ap.add_argument("--pose-kpt-conf", type=float, default=0.35, help="Keypoint confidence threshold")
     ap.add_argument(
         "--no-draw-pose",
@@ -1014,9 +1215,9 @@ def main():
     ap.add_argument(
         "--stream-quality",
         type=str,
-        default=(os.environ.get("DEFAULT_STREAM_QUALITY", "high") or "high").strip().lower(),
+        default=(os.environ.get("DEFAULT_STREAM_QUALITY", "auto") or "auto").strip().lower(),
         choices=["auto", "low", "medium", "high", "ultra"],
-        help="Capture + MJPEG quality preset. Affects default --width/--height and --jpeg-quality unless you override them explicitly.",
+        help="Capture + MJPEG quality preset. auto picks a hardware-aware default unless you override width/height explicitly.",
     )
     ap.add_argument(
         "--jpeg-quality",
@@ -1034,8 +1235,8 @@ def main():
     ap.add_argument(
         "--webrtc-bitrate",
         type=int,
-        default=_env_int("DEFAULT_WEBRTC_BITRATE_KBPS", 2500),
-        help="Target WebRTC video bitrate in kbps (0 = aiortc default bitrate control).",
+        default=_env_int("DEFAULT_WEBRTC_BITRATE_KBPS", -1),
+        help="Target WebRTC video bitrate in kbps (-1 = hardware-aware auto, 0 = aiortc default bitrate control).",
     )
     ap.add_argument(
         "--webrtc-port-min",
@@ -1067,6 +1268,8 @@ def main():
 
     raw_argv = sys.argv[1:]
     args = ap.parse_args()
+    device = resolve_device(args.device)
+    tuning_profile = _apply_runtime_tuning(args, raw_argv, device)
     stream_quality_name = _apply_stream_quality_profile(args, raw_argv)
 
     if args.help_web:
@@ -1074,12 +1277,13 @@ def main():
         print("  --web/--no-web --stream webrtc|mjpeg|auto --host HOST --port PORT")
         print("  Default bind host: 127.0.0.1 (localhost only)")
         print("  Default stream mode: auto (WebRTC preferred, MJPEG fallback)")
-        print("  Default stream quality: high (1280x720, JPEG 88) unless overridden")
+        print("  Runtime tuning: --performance-profile auto|max|off")
+        print("  Default stream quality: hardware-aware auto (typically high or ultra) unless overridden")
         print("  Security: --web-auth-token TOKEN --web-allow-origin http://host:port[,http://host2:port]")
         print("  Optional debug: --window (show OpenCV preview + hotkeys)")
         print("  Worker-side WebRTC signaling endpoint: POST /api/webrtc/offer")
         print("  MJPEG fallback endpoint: GET /stream.mjpg")
-        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --webrtc-bitrate KBPS")
+        print("  WebRTC: --webrtc-codec auto|h264|vp8|vp9|av1 --webrtc-bitrate KBPS (-1=hardware auto)")
         print("  WebRTC port range: --webrtc-port-min PORT --webrtc-port-max PORT")
         print("  WebRTC GPU: --webrtc-gpu 0|1  (1=auto-detect GPU encoder, 0=force CPU)")
         print("  Frame sharing: --webrtc-frame-sharing 0|1  (1=encode once for all clients)")
@@ -1090,10 +1294,14 @@ def main():
 
     if args.width <= 0 or args.height <= 0:
         raise SystemExit("--width and --height must be greater than 0.")
+    if int(args.imgsz) <= 0:
+        raise SystemExit("--imgsz must be greater than 0.")
+    if int(args.pose_every) <= 0:
+        raise SystemExit("--pose-every must be greater than 0.")
     if not (10 <= int(args.jpeg_quality) <= 95):
         raise SystemExit("--jpeg-quality must be between 10 and 95.")
-    if int(args.webrtc_bitrate) < 0:
-        raise SystemExit("--webrtc-bitrate must be >= 0.")
+    if int(args.webrtc_bitrate) < -1:
+        raise SystemExit("--webrtc-bitrate must be >= -1.")
     if int(args.webrtc_port_min) < 0 or int(args.webrtc_port_max) < 0:
         raise SystemExit("--webrtc-port-min and --webrtc-port-max must be >= 0.")
     if (int(args.webrtc_port_min) > 0) != (int(args.webrtc_port_max) > 0):
@@ -1148,8 +1356,19 @@ def main():
 
     _configure_ultralytics_runtime_dirs()
 
-    device = resolve_device(args.device)
     _log.info("Device: %s", _device_status_summary(device))
+    if tuning_profile is not None:
+        _log.info(
+            "Runtime tuning: %s  stream=%s  capture=%dx%d  imgsz=%d  webrtc=%d kbps  pose_every=%d  [%s]",
+            tuning_profile.name,
+            stream_quality_name,
+            int(args.width),
+            int(args.height),
+            int(args.imgsz),
+            int(args.webrtc_bitrate),
+            int(args.pose_every),
+            tuning_profile.note,
+        )
 
     # Choose preset (unless user forces --model)
     active_preset_name, active_preset = pick_preset(args.preset, device, presets)
@@ -2051,8 +2270,10 @@ def main():
                     _log.info("State API: http://%s:%s/api/state", display_host, args.port)
                     if int(args.webrtc_bitrate) > 0:
                         _log.info("WebRTC target bitrate: %d kbps", int(args.webrtc_bitrate))
+                    elif int(args.webrtc_bitrate) < 0:
+                        _log.info("WebRTC target bitrate: hardware-aware auto")
                     else:
-                        _log.info("WebRTC target bitrate: auto")
+                        _log.info("WebRTC target bitrate: aiortc default")
                     if int(args.webrtc_port_min) > 0:
                         _log.info("WebRTC ICE port range: %d-%d", int(args.webrtc_port_min), int(args.webrtc_port_max))
                     run_webrtc_server(

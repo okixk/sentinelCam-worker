@@ -45,6 +45,7 @@ _H264_ENCODER_CANDIDATES: List[Tuple[str, dict, str, str]] = [
     ("h264_nvenc", {"preset": "p4", "tune": "ull", "zerolatency": "1", "rc": "cbr"}, "NVIDIA NVENC", "yuv420p"),
     ("h264_amf",   {"usage": "ultralowlatency", "quality": "speed"},               "AMD AMF",      "nv12"),
     ("h264_qsv",   {"preset": "veryfast", "async_depth": "1", "low_power": "1", "look_ahead": "0"}, "Intel QSV", "nv12"),
+    ("h264_videotoolbox", {},                                                       "Apple VideoToolbox", "nv12"),
     ("libx264",    {"tune": "zerolatency"},                                         "CPU (libx264)", "yuv420p"),
 ]
 

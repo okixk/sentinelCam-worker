@@ -25,8 +25,8 @@ Optional hardening in webcam.properties:
   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 Stream quality defaults in webcam.properties:
   DEFAULT_STREAM_MODE=auto
-  DEFAULT_WEBRTC_BITRATE_KBPS=2500
-  DEFAULT_STREAM_QUALITY=high
+  DEFAULT_WEBRTC_BITRATE_KBPS=-1
+  DEFAULT_STREAM_QUALITY=auto
   DEFAULT_JPEG_QUALITY=88
 
 Examples:
@@ -36,7 +36,7 @@ Examples:
   ./run.sh --window                 # also show OpenCV preview window
   ./run.sh --host 0.0.0.0 --port 8080
   ./run.sh --stream webrtc
-  ./run.sh --webrtc-bitrate 2500
+  ./run.sh --webrtc-bitrate 8000
   ./run.sh --stream-quality ultra
 HELP
   exit 0
