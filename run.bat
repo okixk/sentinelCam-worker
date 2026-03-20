@@ -201,7 +201,7 @@ set "PIP_CACHE_DIR=%SCRIPT_DIR%%PIP_CACHE_DIR_LOCAL%"
 
 if "%DO_INSTALL%"=="1" (
   "%PYTHON_EXE%" -m pip install --upgrade pip wheel setuptools >nul 2>&1
-  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc av
+  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc "av==14.1.0; python_version < '3.13'" "av==16.1.0; python_version >= '3.13'"
   if errorlevel 1 exit /b 1
 ) else (
   echo Skipping install ^(--no-install^). Assuming venv + deps already exist.

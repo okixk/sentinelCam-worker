@@ -231,7 +231,9 @@ ensure_venv() {
 
 install_pip_deps() {
   python -m pip install --upgrade pip wheel setuptools >/dev/null
-  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc av
+  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc \
+    "av==14.1.0; python_version < '3.13'" \
+    "av==16.1.0; python_version >= '3.13'"
 }
 
 SILENT=0
