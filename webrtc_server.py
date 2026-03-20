@@ -50,6 +50,10 @@ _H264_ENCODER_CANDIDATES: List[Tuple[str, dict, str, str]] = [
 ]
 
 
+def _normalize_video_fps(value: int) -> int:
+    return max(1, min(int(value or 30), 120))
+
+
 def _detect_best_h264_encoder() -> Tuple[str, dict, str, str]:
     """Probe available H.264 encoders and return (codec_name, options, label, pix_fmt)."""
     import numpy as np
@@ -84,8 +88,8 @@ def _detect_best_h264_encoder() -> Tuple[str, dict, str, str]:
     return "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
 
 
-def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "yuv420p") -> None:
-    """Monkey-patch aiortc's H264Encoder to use the given codec."""
+def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "yuv420p", target_fps: int = 30) -> None:
+    """Monkey-patch aiortc's H264Encoder to use the given codec and target fps."""
     try:
         from aiortc.codecs import h264 as _h264_mod
     except ImportError:
@@ -132,8 +136,8 @@ def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "y
             self.codec.height = frame.height
             self.codec.bit_rate = self.target_bitrate
             self.codec.pix_fmt = pix_fmt
-            self.codec.framerate = fractions.Fraction(_h264_mod.MAX_FRAME_RATE, 1)
-            self.codec.time_base = fractions.Fraction(1, _h264_mod.MAX_FRAME_RATE)
+            self.codec.framerate = fractions.Fraction(target_fps, 1)
+            self.codec.time_base = fractions.Fraction(1, target_fps)
             opts = dict(codec_options)
             if codec_name == "libx264":
                 opts.setdefault("level", "31")
@@ -147,7 +151,7 @@ def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "y
             yield from self._split_bitstream(data_to_send)
 
     _OrigEncoder._encode_frame = _patched_encode_frame
-    _logger.info("Patched aiortc H264Encoder to use %s (pix_fmt=%s)", codec_name, pix_fmt)
+    _logger.info("Patched aiortc H264Encoder to use %s (pix_fmt=%s, fps=%d)", codec_name, pix_fmt, target_fps)
 
 
 # ---------------------------------------------------------------------------
@@ -160,12 +164,13 @@ class SharedEncoder:
     Subscribers (one per peer connection) read the latest encoded packets.
     """
 
-    def __init__(self, hub: FrameHub, codec_name: str, codec_options: dict, target_bitrate_bps: int, pix_fmt: str = "yuv420p"):
+    def __init__(self, hub: FrameHub, codec_name: str, codec_options: dict, target_bitrate_bps: int, pix_fmt: str = "yuv420p", target_fps: int = 30):
         self._hub = hub
         self._codec_name = codec_name
         self._codec_options = codec_options
         self._pix_fmt = pix_fmt
         self._target_bitrate = max(target_bitrate_bps, 500_000)
+        self._target_fps = _normalize_video_fps(target_fps)
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._packets: List[bytes] = []
@@ -205,8 +210,8 @@ class SharedEncoder:
                 codec.height = vf.height
                 codec.bit_rate = self._target_bitrate
                 codec.pix_fmt = self._pix_fmt
-                codec.framerate = fractions.Fraction(30, 1)
-                codec.time_base = fractions.Fraction(1, 30)
+                codec.framerate = fractions.Fraction(self._target_fps, 1)
+                codec.time_base = fractions.Fraction(1, self._target_fps)
                 opts = dict(self._codec_options)
                 if self._codec_name == "libx264":
                     opts.setdefault("level", "31")
@@ -270,27 +275,34 @@ class SharedVideoTrack(VideoStreamTrack):
 
     kind = "video"
 
-    def __init__(self, shared: SharedEncoder):
+    def __init__(self, shared: SharedEncoder, target_fps: int = 30):
         super().__init__()
         self._shared = shared
+        self._target_fps = _normalize_video_fps(target_fps)
         self._last_seq = 0
-        self._clock_start: float | None = None
-        self._last_pts = 0
+        self._timestamp: int | None = None
+        self._start: float | None = None
+
+    async def _next_timestamp(self) -> tuple[int, Fraction]:
+        step = max(1, int(90000 / self._target_fps))
+        if self._timestamp is None:
+            self._start = time.time()
+            self._timestamp = 0
+            return 0, Fraction(1, 90000)
+
+        self._timestamp += step
+        wait = (self._start or time.time()) + (self._timestamp / 90000.0) - time.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        return self._timestamp, Fraction(1, 90000)
 
     async def recv(self) -> av.Packet:
+        pts, time_base = await self._next_timestamp()
         nals, seq = await asyncio.to_thread(self._shared.wait_newer, self._last_seq, 1.0)
         while not nals:
             await asyncio.sleep(0.02)
             nals, seq = await asyncio.to_thread(self._shared.wait_newer, self._last_seq, 1.0)
         self._last_seq = seq
-
-        now = time.time()
-        if self._clock_start is None:
-            self._clock_start = now
-            pts = 0
-        else:
-            pts = max(int((now - self._clock_start) * 90000), self._last_pts + 1)
-        self._last_pts = pts
 
         # Reassemble NALs into Annex-B bitstream
         data = b""
@@ -300,7 +312,7 @@ class SharedVideoTrack(VideoStreamTrack):
         packet = av.Packet(data)
         packet.pts = pts
         packet.dts = pts
-        packet.time_base = Fraction(1, 90000)
+        packet.time_base = time_base
         return packet
 
 
@@ -686,17 +698,34 @@ def _check_origin_and_auth(
 class HubVideoStreamTrack(VideoStreamTrack):
     kind = "video"
 
-    def __init__(self, hub: FrameHub):
+    def __init__(self, hub: FrameHub, target_fps: int = 30):
         super().__init__()
         self._hub = hub
+        self._target_fps = _normalize_video_fps(target_fps)
         self._last_ts = 0.0
         self._last_frame = None
-        self._clock_start = None
-        self._last_pts = 0
+        self._timestamp: int | None = None
+        self._start: float | None = None
+
+    async def _next_timestamp(self) -> tuple[int, Fraction]:
+        step = max(1, int(90000 / self._target_fps))
+        if self._timestamp is None:
+            self._start = time.time()
+            self._timestamp = 0
+            return 0, Fraction(1, 90000)
+
+        self._timestamp += step
+        wait = (self._start or time.time()) + (self._timestamp / 90000.0) - time.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        return self._timestamp, Fraction(1, 90000)
 
     async def recv(self) -> VideoFrame:
+        pts, time_base = await self._next_timestamp()
         while True:
-            frame_bgr, ts = await asyncio.to_thread(self._hub.wait_newer_frame, self._last_ts, 1.0)
+            frame_bgr, ts = await asyncio.to_thread(self._hub.latest_frame)
+            if frame_bgr is None:
+                frame_bgr, ts = await asyncio.to_thread(self._hub.wait_newer_frame, self._last_ts, 1.0)
             if frame_bgr is None:
                 await asyncio.sleep(0.02)
                 continue
@@ -707,16 +736,9 @@ class HubVideoStreamTrack(VideoStreamTrack):
             else:
                 frame_bgr = self._last_frame.copy()
 
-            now = time.time()
-            if self._clock_start is None:
-                self._clock_start = now
-                pts = 0
-            else:
-                pts = max(int((now - self._clock_start) * 90000), self._last_pts + 1)
-            self._last_pts = pts
             frame = VideoFrame.from_ndarray(frame_bgr, format="bgr24")
             frame.pts = pts
-            frame.time_base = Fraction(1, 90000)
+            frame.time_base = time_base
             return frame
 
 
@@ -775,6 +797,7 @@ async def _run_webrtc_server(
     security: SecurityConfig,
     codec_preference: str,
     target_bitrate_kbps: int,
+    target_fps: int,
     ice_port_min: int,
     ice_port_max: int,
     hw_encoder_name: str,
@@ -792,8 +815,11 @@ async def _run_webrtc_server(
         _configure_ice_port_range(int(ice_port_min), int(ice_port_max))
 
     # Install GPU / HW encoder patch (applies even for frame-sharing's fallback per-client path)
-    if hw_encoder_name != "libx264":
-        _install_gpu_encoder(hw_encoder_name, hw_encoder_opts, hw_pix_fmt)
+    target_fps = _normalize_video_fps(target_fps)
+
+    # Install the custom H.264 encoder patch for both HW and CPU H264 paths,
+    # so bitrate/fps overrides apply consistently.
+    _install_gpu_encoder(hw_encoder_name, hw_encoder_opts, hw_pix_fmt, target_fps=target_fps)
 
     # Force H264 codec when we have a GPU encoder or frame sharing configured,
     # because the GPU encoder monkey-patch only works for H264.
@@ -938,9 +964,9 @@ async def _run_webrtc_server(
                 await pc.close()
 
         if shared_encoder is not None:
-            track = SharedVideoTrack(shared_encoder)
+            track = SharedVideoTrack(shared_encoder, target_fps=target_fps)
         else:
-            track = HubVideoStreamTrack(hub)
+            track = HubVideoStreamTrack(hub, target_fps=target_fps)
         transceiver = pc.addTransceiver(track, direction="sendonly")
         _apply_codec_preference(transceiver, effective_codec_pref)
 
@@ -1160,6 +1186,7 @@ def run_webrtc_server(
     security: Optional[SecurityConfig] = None,
     codec_preference: str = "auto",
     target_bitrate_kbps: int = 2500,
+    target_fps: int = 30,
     ice_port_min: int = 0,
     ice_port_max: int = 0,
     use_gpu: bool = True,
@@ -1174,6 +1201,7 @@ def run_webrtc_server(
     else:
         enc_name, enc_opts, enc_label, enc_pix_fmt = "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
     _logger.info("WebRTC H.264 encoder: %s", enc_label)
+    _logger.info("WebRTC target fps: %d", _normalize_video_fps(target_fps))
 
     # Warn if the user selected a codec that aiortc likely doesn't support
     _user_codec = (codec_preference or "auto").strip().lower()
@@ -1201,6 +1229,7 @@ def run_webrtc_server(
             security=security,
             codec_preference=codec_preference,
             target_bitrate_kbps=int(target_bitrate_kbps),
+            target_fps=int(target_fps),
             ice_port_min=int(ice_port_min),
             ice_port_max=int(ice_port_max),
             hw_encoder_name=enc_name,

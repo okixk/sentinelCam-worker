@@ -140,6 +140,12 @@ Use a higher WebRTC bitrate:
 ./run.sh --webrtc-bitrate 8000
 ```
 
+Use 60 fps WebRTC on capable hardware:
+
+```bash
+./run.sh --webrtc-fps 60
+```
+
 Force MJPEG only:
 
 ```bash
@@ -203,6 +209,7 @@ Important defaults:
 - `DEFAULT_STREAM_MODE=auto`
 - `DEFAULT_PERFORMANCE_PROFILE=auto`
 - `DEFAULT_WEBRTC_BITRATE_KBPS=-1` (`-1` = hardware-aware auto)
+- `DEFAULT_WEBRTC_FPS=0` (`0` = hardware-aware auto, typically `60` on stronger GPUs)
 - `DEFAULT_WEBRTC_PORT_MIN=50000` / `DEFAULT_WEBRTC_PORT_MAX=51000`
 - `DEFAULT_WEBRTC_GPU=1` (auto-detect GPU encoder; `0` = force CPU)
 - `DEFAULT_WEBRTC_FRAME_SHARING=1` (encode once, share to all clients)

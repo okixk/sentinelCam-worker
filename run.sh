@@ -26,6 +26,7 @@ Optional hardening in webcam.properties:
 Stream quality defaults in webcam.properties:
   DEFAULT_STREAM_MODE=auto
   DEFAULT_WEBRTC_BITRATE_KBPS=-1
+  DEFAULT_WEBRTC_FPS=0
   DEFAULT_STREAM_QUALITY=auto
   DEFAULT_CPU_THREADS=0
   DEFAULT_JPEG_QUALITY=88
@@ -38,6 +39,7 @@ Examples:
   ./run.sh --host 0.0.0.0 --port 8080
   ./run.sh --stream webrtc
   ./run.sh --webrtc-bitrate 8000
+  ./run.sh --webrtc-fps 60
   ./run.sh --stream-quality ultra
 HELP
   exit 0
