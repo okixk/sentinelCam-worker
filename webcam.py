@@ -1674,6 +1674,8 @@ def main():
         "worker_alive": True,
         "ts": None,
     }
+    state_publish_interval = 0.5
+    last_runtime_state_publish = 0.0
 
     def _update_state(**kw):
         try:
@@ -1685,6 +1687,26 @@ def main():
     def _get_state() -> Dict[str, object]:
         with state_lock:
             return dict(web_state)
+
+    def _publish_runtime_state(*, force: bool = False) -> None:
+        nonlocal last_runtime_state_publish
+        now = time.time()
+        if not force and (now - last_runtime_state_publish) < state_publish_interval:
+            return
+        last_runtime_state_publish = now
+        _update_state(
+            preset=active_preset_name,
+            pose_enabled=pose_enabled,
+            overlay_enabled=overlay_enabled,
+            inference_enabled=inference_enabled,
+            fps=float(fps_smooth),
+            det=os.path.basename(str(det_weights)) if det_weights else None,
+            pose=os.path.basename(str(pose_weights)) if pose_weights else None,
+            last_error=None,
+            last_error_ts=None,
+            worker_alive=True,
+            ts=now,
+        )
 
     def _normalize_web_cmd_name(raw_cmd: object) -> str:
         cmd = str(raw_cmd or "").strip().lower()
@@ -1796,8 +1818,16 @@ def main():
 
 
     if web_enabled:
-        hub = FrameHub(jpeg_quality=args.jpeg_quality)
-        raw_frame_hub = FrameHub(jpeg_quality=args.jpeg_quality)
+        hub = FrameHub(
+            jpeg_quality=args.jpeg_quality,
+            eager_jpeg=True,
+            copy_frame_on_update=False,
+        )
+        raw_frame_hub = FrameHub(
+            jpeg_quality=args.jpeg_quality,
+            eager_jpeg=False,
+            copy_frame_on_update=True,
+        )
     else:
         raw_frame_hub = None
 
@@ -2088,17 +2118,7 @@ def main():
                     inst_fps = 1.0 / max(dt, 1e-6)
                     fps_smooth = 0.9 * fps_smooth + 0.1 * inst_fps if fps_smooth > 0 else inst_fps
 
-                    _update_state(
-                        preset=active_preset_name,
-                        pose_enabled=pose_enabled,
-                        overlay_enabled=overlay_enabled,
-                        inference_enabled=inference_enabled,
-                        fps=float(fps_smooth),
-                        det=os.path.basename(str(det_weights)) if det_weights else None,
-                        pose=os.path.basename(str(pose_weights)) if pose_weights else None,
-                        worker_alive=True,
-                        ts=time.time(),
-                    )
+                    _publish_runtime_state()
 
                     if hub is not None:
                         hub.update(frame)
@@ -2334,16 +2354,7 @@ def main():
                         "Keys: q quit | m next model | n prev model | p pose | o overlay | i model",
                     )
 
-                _update_state(
-                    preset=active_preset_name,
-                    pose_enabled=pose_enabled,
-                    overlay_enabled=overlay_enabled,
-                    inference_enabled=inference_enabled,
-                    fps=float(fps_smooth),
-                    det=os.path.basename(str(det_weights)) if det_weights else None,
-                    pose=os.path.basename(str(pose_weights)) if pose_weights else None,
-                    ts=time.time(),
-                )
+                _publish_runtime_state()
 
                 if hub is not None:
                     hub.update(frame)

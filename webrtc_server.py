@@ -723,18 +723,15 @@ class HubVideoStreamTrack(VideoStreamTrack):
     async def recv(self) -> VideoFrame:
         pts, time_base = await self._next_timestamp()
         while True:
-            frame_bgr, ts = await asyncio.to_thread(self._hub.latest_frame)
-            if frame_bgr is None:
-                frame_bgr, ts = await asyncio.to_thread(self._hub.wait_newer_frame, self._last_ts, 1.0)
-            if frame_bgr is None:
-                await asyncio.sleep(0.02)
-                continue
-
-            if ts > self._last_ts or self._last_frame is None:
+            frame_bgr, ts = await asyncio.to_thread(self._hub.wait_newer_frame, self._last_ts, 1.0)
+            if frame_bgr is not None and (ts > self._last_ts or self._last_frame is None):
                 self._last_ts = ts
                 self._last_frame = frame_bgr
-            else:
+            elif self._last_frame is not None:
                 frame_bgr = self._last_frame.copy()
+            else:
+                await asyncio.sleep(0.02)
+                continue
 
             frame = VideoFrame.from_ndarray(frame_bgr, format="bgr24")
             frame.pts = pts
@@ -837,6 +834,7 @@ async def _run_webrtc_server(
             "/offer",
             "/api/webrtc/offer",
             "/stream.mjpg",
+            "/stream-raw.mjpg",
             "/mjpeg",
             "/video",
             "/video_feed",
@@ -1047,7 +1045,7 @@ async def _run_webrtc_server(
         _apply_cors_headers(response, request, security, loopback_bind)
         return response
 
-    async def handle_mjpeg_stream(request: web.Request) -> web.StreamResponse:
+    async def _handle_hub_mjpeg_stream(request: web.Request, source_hub: FrameHub) -> web.StreamResponse:
         error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
             return error
@@ -1070,7 +1068,7 @@ async def _run_webrtc_server(
             while True:
                 if stop_event is not None and stop_event.is_set():
                     break
-                jpeg, last_ts = await asyncio.to_thread(hub.wait_newer, last_ts, 1.0)
+                jpeg, last_ts = await asyncio.to_thread(source_hub.wait_newer, last_ts, 1.0)
                 if not jpeg:
                     continue
                 await response.write(f"--{boundary}\r\n".encode("utf-8"))
@@ -1087,6 +1085,12 @@ async def _run_webrtc_server(
                 pass
 
         return response
+
+    async def handle_mjpeg_stream(request: web.Request) -> web.StreamResponse:
+        return await _handle_hub_mjpeg_stream(request, hub)
+
+    async def handle_raw_mjpeg_stream(request: web.Request) -> web.StreamResponse:
+        return await _handle_hub_mjpeg_stream(request, raw_hub if raw_hub is not None else hub)
 
     async def handle_test_page(request: web.Request) -> web.Response:
         error = _check_origin_and_auth(request, security, loopback_bind, require_auth=False)
@@ -1106,6 +1110,7 @@ async def _run_webrtc_server(
     app.router.add_get("/health", handle_health)
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/stream.mjpg", handle_mjpeg_stream)
+    app.router.add_get("/stream-raw.mjpg", handle_raw_mjpeg_stream)
     app.router.add_get("/mjpeg", handle_mjpeg_stream)
     app.router.add_get("/video", handle_mjpeg_stream)
     app.router.add_get("/video_feed", handle_mjpeg_stream)

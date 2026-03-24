@@ -1,376 +1,373 @@
-# sentinelCam Worker Development
+# sentinelCam Worker
 
-The worker is the processing backend of the sentinelCam stack.
+`sentinelCam-worker` is the capture and inference backend of the sentinelCam stack.
 
-It captures a video source, runs object detection and optional pose inference with YOLO, and exposes the result through a small HTTP API for the browser UI in [`sentinelCam-web`](https://github.com/okixk/sentinelCam-web).
+It opens a video source, runs YOLO detection and optional pose inference, exposes a small HTTP API, and streams video to `sentinelCam-web` through WebRTC with MJPEG fallback.
 
-## What this repo does
+## What This Repo Does
 
 - captures video from:
-  - a local webcam
-  - a device path
-  - a file
-  - a remote stream URL
-- runs YOLO-based detection and optional pose inference
-- supports runtime model switching
-- supports pose, overlay, and inference toggles at runtime
+  - local webcam index such as `0`
+  - device path
+  - file
+  - remote stream URL
+  - generated test source via `synthetic` / `testsrc`
+- runs YOLO detection and optional pose inference
+- supports runtime model switching and worker commands
 - serves:
+  - `GET /health`
   - `GET /api/state`
   - `POST /api/cmd`
-  - `GET /health`
   - `POST /api/webrtc/offer` when WebRTC is enabled
-  - `GET /stream.mjpg` as MJPEG output and fallback
-  - `GET /frame.jpg` for the latest snapshot (with YOLO overlay)
-  - `GET /frame-raw.jpg` for the latest snapshot without YOLO overlay
-
-## Where this repo fits
-
-Typical flow:
-
-`camera -> worker -> web browser`
-
-Future flow with edge nodes:
-
-`camera -> sentinelCam-edge -> sentinelCam-worker -> sentinelCam-web`
-
-## Related repositories
-
-- **Web UI:** [`sentinelCam-web`](https://github.com/okixk/sentinelCam-web)  
-  Static browser frontend plus optional local reverse proxy for controlling and viewing the worker.
-
-- **Edge capture node:** [`sentinelCam-edge`](https://github.com/okixk/sentinelCam-edge)  
-  Planned lightweight camera-side component for forwarding streams into the worker.
-
-## Quick start
-
-### Linux / macOS
-
-```bash
-./run.sh
-```
-
-### Windows
-
-```bat
-run.bat
-```
-
-The launcher can:
-
-- create a local virtual environment in `.runtime`
-- install Python dependencies
-- ask for a camera index or stream source
-- ask whether to bind to localhost or all interfaces when `--host` is not passed
-- start `webcam.py`
-
-By default, the worker binds to `127.0.0.1` and uses `DEFAULT_STREAM_MODE=auto`, which prefers WebRTC when available and keeps MJPEG as fallback.
-
-On Apple Silicon, `DEFAULT_DEVICE=auto` prefers PyTorch `mps` for inference and WebRTC H.264 can use Apple VideoToolbox when available.
-
-## Stream modes
-
-The worker supports three web stream modes:
-
-- `--stream auto`  
-  Preferred mode. Uses WebRTC when the WebRTC dependencies are available, with MJPEG fallback still exposed.
-
-- `--stream webrtc`  
-  Forces WebRTC mode. The worker serves:
-  - `POST /api/webrtc/offer`
-  - `GET /webrtc-test`
-  - `GET /api/state`
-  - `POST /api/cmd`
-  - `GET /health`
-  - `GET /stream.mjpg` as fallback
-  - `GET /frame.jpg` latest snapshot with YOLO overlay
-  - `GET /frame-raw.jpg` latest snapshot without YOLO overlay
-
-- `--stream mjpeg`  
-  Forces MJPEG-only mode and serves:
   - `GET /stream.mjpg`
   - `GET /frame.jpg`
   - `GET /frame-raw.jpg`
-  - `GET /api/state`
-  - `POST /api/cmd`
-  - `GET /health`
 
-## Connect the web UI
+## Where It Fits
 
-Open the UI from [`sentinelCam-web`](https://github.com/okixk/sentinelCam-web), then connect it to:
+```text
+camera/source -> sentinelCam-worker -> sentinelCam-web -> browser
+```
+
+## Platform Matrix
+
+| Platform | Recommended start | Docker support |
+|---|---|---|
+| Windows | local `run.bat` | Docker only for synthetic/testsrc or remote streams |
+| Linux | local `run.sh` or Docker | full Docker including webcam passthrough |
+| macOS | local `run.sh` | Docker only for synthetic/testsrc or remote streams |
+
+Important:
+
+- For real webcams, Windows and macOS should run the worker locally.
+- Linux can run the worker locally or in Docker.
+- For first-time smoke tests on any platform, `--source synthetic` is the easiest path.
+
+## 1. Prerequisites
+
+Windows:
+
+- Python 3 with `py` launcher
+- PowerShell or Command Prompt
+
+Linux:
+
+- Python 3 with `venv`
+- Bash
+
+macOS:
+
+- Python 3 with `venv`
+- Bash or zsh
+
+Optional for web integration:
+
+- `sentinelCam-web`
+- shared worker token
+
+## 2. Quick Smoke Test Without A Camera
+
+Use this first if you only want to confirm that the worker starts and responds.
+
+### Windows
+
+```powershell
+cd C:\path\to\sentinelCam-worker
+.\run.bat --source synthetic --host 0.0.0.0 --no-window --stream auto
+```
+
+### Linux
+
+```bash
+cd ~/sentinelCam-worker
+bash ./run.sh --source synthetic --host 0.0.0.0 --no-window --stream auto
+```
+
+### macOS
+
+```bash
+cd ~/sentinelCam-worker
+bash ./run.sh --source synthetic --host 0.0.0.0 --no-window --stream auto
+```
+
+Then verify:
+
+```text
+http://127.0.0.1:8080/health
+```
+
+## 3. Start On Windows
+
+Recommended path:
+
+- run locally with `run.bat`
+- expose `0.0.0.0` when the web app is in Docker
+
+### Start With A Real Camera
+
+```powershell
+cd C:\path\to\sentinelCam-worker
+.\run.bat --source 0 --host 0.0.0.0 --no-window --stream auto
+```
+
+### Start With A Remote Stream
+
+```powershell
+.\run.bat --source http://HOST:PORT/stream.mjpg --host 0.0.0.0 --no-window --stream auto
+```
+
+### Start For Use With sentinelCam-web
+
+Set the same token that `sentinelCam-web` uses as `WORKER_TOKEN`:
+
+```powershell
+$env:WEB_AUTH_TOKEN = "<same token as sentinelCam-web/.env -> WORKER_TOKEN>"
+$env:WEB_ALLOWED_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+.\run.bat --source 0 --host 0.0.0.0 --no-window --stream auto
+```
+
+Notes:
+
+- If you omit `--source`, `run.bat` will prompt you for a camera or URL.
+- If you omit `--host`, `run.bat` will ask whether to use `127.0.0.1` or `0.0.0.0`.
+- `--source synthetic` is the quickest no-camera test.
+
+## 4. Start On Linux
+
+### Start With A Real Camera
+
+```bash
+cd ~/sentinelCam-worker
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream auto
+```
+
+### Start With A Remote Stream
+
+```bash
+bash ./run.sh --source rtsp://HOST:PORT/stream --host 0.0.0.0 --no-window --stream auto
+```
+
+### Start For Use With sentinelCam-web
+
+```bash
+export WEB_AUTH_TOKEN="<same token as sentinelCam-web/.env -> WORKER_TOKEN>"
+export WEB_ALLOWED_ORIGINS="http://localhost:3000,http://127.0.0.1:3000"
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream auto
+```
+
+Notes:
+
+- If you prefer localhost-only access and the web app is also local, use `--host 127.0.0.1`.
+- If the web app runs in Docker, use `--host 0.0.0.0` so the container can reach the worker.
+- If `run.sh` is not executable, `bash ./run.sh ...` is fine.
+
+## 5. Start On macOS
+
+### Start With A Real Camera
+
+```bash
+cd ~/sentinelCam-worker
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream auto
+```
+
+### Start With A Remote Stream
+
+```bash
+bash ./run.sh --source http://HOST:PORT/stream.mjpg --host 0.0.0.0 --no-window --stream auto
+```
+
+### Start For Use With sentinelCam-web
+
+```bash
+export WEB_AUTH_TOKEN="<same token as sentinelCam-web/.env -> WORKER_TOKEN>"
+export WEB_ALLOWED_ORIGINS="http://localhost:3000,http://127.0.0.1:3000"
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream auto
+```
+
+macOS notes:
+
+- On first camera use, macOS may ask you to allow camera access for Terminal, iTerm, or Python.
+- `DEFAULT_DEVICE=auto` prefers Apple `mps` when available.
+
+## 6. Connect sentinelCam-web
+
+The web UI usually connects through its proxy, not directly from the browser.
+
+If the web app runs locally outside Docker, the default worker URL is usually:
 
 ```text
 http://127.0.0.1:8080
 ```
 
-or, for LAN access:
+If the web app runs in Docker on Windows, Linux, or macOS:
+
+- keep the worker on the host
+- start the worker with `--host 0.0.0.0`
+- let the web container reach it through `host.docker.internal:8080`
+
+Open the web UI at:
 
 ```text
-http://WORKER_IP:8080
+http://localhost:3000
 ```
 
-The current web UI prefers WebRTC and falls back to MJPEG automatically when the worker does not expose WebRTC.
+## 7. Verify The Worker
 
-## Common usage
+### Windows PowerShell
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8080/health | Select-Object -ExpandProperty Content
+```
+
+### Linux / macOS
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+If you configured `WEB_AUTH_TOKEN`, authenticated API checks look like this:
+
+### Windows PowerShell
+
+```powershell
+Invoke-WebRequest -UseBasicParsing `
+  -Headers @{ Authorization = "Bearer YOUR_TOKEN" } `
+  http://127.0.0.1:8080/api/state | Select-Object -ExpandProperty Content
+```
+
+### Linux / macOS
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" http://127.0.0.1:8080/api/state
+```
+
+## 8. Stop The Worker
+
+If you started the worker locally:
+
+- press `Ctrl+C` in the worker terminal
+
+If you started it with Docker:
+
+```bash
+docker compose -f docker-compose.worker.yml down
+```
+
+## Common Commands
 
 Use a local webcam:
 
 ```bash
-./run.sh --source 0
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream auto
+```
+
+Use generated frames:
+
+```bash
+bash ./run.sh --source synthetic --host 0.0.0.0 --no-window --stream auto
 ```
 
 Use a remote stream:
 
 ```bash
-./run.sh --source http://HOST:PORT/stream.mjpg
-```
-
-Run the worker on the LAN:
-
-```bash
-./run.sh --host 0.0.0.0 --port 8080
-```
-
-Force WebRTC:
-
-```bash
-./run.sh --stream webrtc
-```
-
-Use a higher WebRTC bitrate:
-
-```bash
-./run.sh --webrtc-bitrate 8000
-```
-
-Use 60 fps WebRTC on capable hardware:
-
-```bash
-./run.sh --webrtc-fps 60
-```
-
-Use the strongest hardware-aware tuning profile:
-
-```bash
-./run.sh --performance-profile max
-```
-
-Request 60 fps from a local webcam too:
-
-```bash
-./run.sh --webrtc-fps 60 --camera-fps 60
-```
-
-Force Apple Silicon GPU inference explicitly:
-
-```bash
-./run.sh --device mps
+bash ./run.sh --source rtsp://HOST:PORT/stream --host 0.0.0.0 --no-window --stream auto
 ```
 
 Force MJPEG only:
 
 ```bash
-./run.sh --stream mjpeg
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream mjpeg
 ```
 
-Use a higher stream quality preset:
+Force WebRTC:
 
 ```bash
-./run.sh --stream-quality ultra
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream webrtc
 ```
 
-If the video looks softer when the model / overlay is active, raise the bitrate or disable the overlay:
+Raise WebRTC bitrate:
 
 ```bash
-./run.sh --webrtc-bitrate 12000
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream auto --webrtc-bitrate 8000
 ```
 
-Window only:
+Request higher camera FPS:
 
 ```bash
-./run.sh --no-web --window
+bash ./run.sh --source 0 --host 0.0.0.0 --no-window --stream auto --camera-fps 60
 ```
 
-Force H.264/VP8 codec for WebRTC (VP9/AV1 require aiortc support):
+Show the OpenCV preview window:
 
 ```bash
-./run.bat --stream webrtc --webrtc-codec h264
+bash ./run.sh --source 0 --host 0.0.0.0 --window --stream auto
 ```
 
-Restrict WebRTC media to a specific UDP port range (useful for firewalls):
+## Stream Modes
 
-```bash
-./run.sh --webrtc-port-min 50000 --webrtc-port-max 51000
-```
+- `--stream auto`
+  Preferred mode. Uses WebRTC when available and still exposes MJPEG fallback.
+- `--stream webrtc`
+  Forces WebRTC mode.
+- `--stream mjpeg`
+  Forces MJPEG-only mode.
 
-Force CPU encoding (disable GPU auto-detection):
-
-```bash
-./run.sh --webrtc-gpu 0
-```
-
-Disable frame sharing (separate encoder per client):
-
-```bash
-./run.sh --webrtc-frame-sharing 0
-```
-
-## Controls
-
-The worker supports runtime controls such as:
-- next / previous model
-- pose on / off
-- overlay on / off
-- inference on / off
-- quit
-
-These can be triggered from the web UI or from local hotkeys when a preview window is enabled.
-
-## Configuration
+## Worker Security Settings
 
 Shared launcher defaults live in `webcam.properties`.
 
-Important defaults:
+Important security-related settings:
 
-- `DEFAULT_DEVICE=auto` (`auto` prefers CUDA, then Apple `mps`, otherwise CPU)
-- `DEFAULT_WEB_HOST=127.0.0.1`
+- `WEB_AUTH_TOKEN`
+- `WEB_ALLOWED_ORIGINS`
+- `WEB_MAX_CMD_BYTES`
+- `DEFAULT_WEB_HOST`
+
+Important runtime defaults:
+
 - `DEFAULT_STREAM_MODE=auto`
-- `DEFAULT_PERFORMANCE_PROFILE=auto` (hardware-aware auto-tuning for stream quality, YOLO image size, WebRTC bitrate/FPS, and pose cadence)
-- `DEFAULT_WEBRTC_BITRATE_KBPS=-1` (`-1` = hardware-aware auto)
-- `DEFAULT_WEBRTC_FPS=0` (`0` = hardware-aware auto, typically `60` on stronger GPUs)
-- `DEFAULT_WEBRTC_PORT_MIN=50000` / `DEFAULT_WEBRTC_PORT_MAX=51000`
-- `DEFAULT_WEBRTC_GPU=1` (auto-detect GPU encoder; `0` = force CPU)
-- `DEFAULT_WEBRTC_FRAME_SHARING=1` (encode once, share to all clients)
+- `DEFAULT_PERFORMANCE_PROFILE=auto`
+- `DEFAULT_WEBRTC_BITRATE_KBPS=-1`
+- `DEFAULT_WEBRTC_FPS=0`
 - `DEFAULT_STREAM_QUALITY=auto`
-- `DEFAULT_CPU_THREADS=0` (`0` = auto = all logical cores)
-- `DEFAULT_CAMERA_FPS=0` (`0` = auto; local webcam sources follow WebRTC fps by default)
 - `DEFAULT_JPEG_QUALITY=88`
-
-Useful security-related settings:
-
-- `WEB_AUTH_TOKEN=...`
-- `WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000`
-- `WEB_MAX_CMD_BYTES=8192`
-
-## Project structure
-
-- `webcam.py` - main processing app
-- `stream_server.py` - MJPEG stream + control API
-- `webrtc_server.py` - worker-side WebRTC signaling and media server
-- `run.sh` - Linux/macOS launcher
-- `run.bat` - Windows launcher
-- `webcam.properties` - shared launcher defaults
-- `Dockerfile` - multi-stage Docker build (Python 3.12-slim)
-- `docker-compose.worker.yml` - Docker Compose config
-- `docker-compose.linux.yml` - optional Linux host-network override for loopback-only workers
-- `docker-compose.worker-cam.yml` - optional Linux webcam passthrough override
-- `.dockerignore` - excludes `.git`, caches, and non-runtime files from the image
-- `requirements.txt` - Python dependencies for Docker and pip installs
 
 ## Docker
 
-The image uses a multi-stage build based on `python:3.12-slim`, runs as a non-root user (`sentinelcam`), and includes a built-in healthcheck on `/health`.
+### Cross-Platform Docker Smoke Test
 
-Default container entrypoint arguments:
-
-```
---host 0.0.0.0 --port 8080 --no-window --stream auto
-```
-
-### Build
-
-```bash
-docker build -t sentinelcam-worker .
-```
-
-### Run (with webcam, Linux only)
-
-Webcam passthrough via `--device` requires Linux. It does **not** work on Windows or macOS Docker Desktop.
-
-```bash
-docker run --rm -p 8080:8080 --device /dev/video0 sentinelcam-worker --source 0
-```
-
-To keep the worker accessible only on localhost (recommended for local use):
-
-```bash
-docker run --rm -p 127.0.0.1:8080:8080 --device /dev/video0 sentinelcam-worker --source 0
-```
-
-### Run (with remote stream)
-
-This works on all platforms (Linux, macOS, Windows) because no device passthrough is needed.
-
-```bash
-docker run --rm -p 127.0.0.1:8080:8080 sentinelcam-worker --source http://HOST:PORT/stream.mjpg
-```
-
-### WebRTC UDP ports
-
-To use WebRTC, expose the ICE UDP port range:
-
-```bash
-docker run --rm -p 127.0.0.1:8080:8080 -p 50000-51000:50000-51000/udp sentinelcam-worker --source 0
-```
-
-### Environment Variables
-
-- `WEB_AUTH_TOKEN` - Bearer token for API authentication
-- `WEB_ALLOWED_ORIGINS` - Comma-separated CORS origin whitelist
-
-Example:
-
-```bash
-docker run --rm -p 127.0.0.1:8080:8080 \
-  -e WEB_AUTH_TOKEN=mytoken \
-  -e WEB_ALLOWED_ORIGINS=http://localhost:3000 \
-  sentinelcam-worker --source http://HOST:PORT/stream.mjpg
-```
-
-### Docker Compose
-
-```bash
-docker compose -f docker-compose.worker.yml up
-```
-
-The base compose file is now cross-platform:
-
-- default source: `testsrc`
-- works on Linux, macOS, and Windows
-- maps port `8080` and the WebRTC UDP range
-- supports `WORKER_TOKEN` as an environment variable for auth
-
-This gives you the same smoke-test startup path everywhere:
+This works on Windows, Linux, and macOS because the default source is `testsrc`:
 
 ```bash
 docker compose -f docker-compose.worker.yml up -d --build
 ```
 
-Use a remote stream on any platform:
+Then open:
 
-```bash
-WORKER_SOURCE=rtsp://HOST:PORT/stream docker compose -f docker-compose.worker.yml up -d --build
+```text
+http://127.0.0.1:8080/health
 ```
 
-For a loopback-only worker on Linux (useful with the legacy `sentinelCam-web`
-`docker-compose.linux.yml` override that proxies to `http://127.0.0.1:8080`):
+### Cross-Platform Docker With Remote Stream
 
-```bash
-docker compose -f docker-compose.worker.yml -f docker-compose.linux.yml up -d --build
+Windows PowerShell:
+
+```powershell
+$env:WORKER_SOURCE = "http://HOST:PORT/stream.mjpg"
+docker compose -f docker-compose.worker.yml up -d --build
 ```
 
-Use a real webcam on Linux only:
+Linux / macOS:
 
 ```bash
-docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
+WORKER_SOURCE=http://HOST:PORT/stream.mjpg docker compose -f docker-compose.worker.yml up -d --build
 ```
 
-Use a real webcam on Linux with loopback-only host networking:
+### Linux Docker With Real Webcam
 
 ```bash
-WORKER_SOURCE=0 docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml -f docker-compose.linux.yml up -d --build
+WORKER_SOURCE=0 docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
 ```
-
-Keep `docker-compose.linux.yml` last so its loopback-only bind overrides the webcam compose command.
 
 Use a different Linux camera device:
 
@@ -378,19 +375,31 @@ Use a different Linux camera device:
 WORKER_VIDEO_DEVICE=/dev/video2 docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
 ```
 
-## Notes
+Loopback-only Linux Docker worker:
 
-- The worker binds to localhost by default for safer local use.
-- If `sentinelCam-web` runs in Docker on Linux, the default web compose expects the worker to be reachable through `host.docker.internal:8080`. A locally started worker should use `./run.sh --host 0.0.0.0`. If the worker stays on `127.0.0.1`, use the legacy `docker-compose.linux.yml` override in the web repo, and this repo's `docker-compose.linux.yml` too when the worker itself also runs in Docker.
-- For remote browser access, prefer a reverse proxy or the `sentinelCam-web` local web server instead of exposing the worker directly.
-- If you enable worker auth, the browser UI should usually connect through the proxy/web server, which injects the worker token server-side.
-- WebRTC support requires `aiohttp`, `aiortc`, and `av`.
-- GPU H.264 encoding is auto-detected at startup (NVIDIA NVENC -> AMD AMF -> Intel QSV -> Apple VideoToolbox -> CPU libx264). Disable with `--webrtc-gpu 0` if needed.
-- The `fps` value shown in the worker state / UI is the worker loop or capture FPS, not necessarily the browser's actual decoded WebRTC FPS.
-- When the model overlay is burned into the video, the picture can look worse at the same bitrate because boxes and text are harder to compress than the raw camera image. Raising `--webrtc-bitrate` or turning overlay off improves this.
-- The `--webrtc-frame-sharing` flag remains available, but the current WebRTC path may still fall back to aiortc's normal per-client frame flow depending on the active encoder path.
-- WebRTC ICE UDP ports default to `50000-51000` for easier firewall configuration. Set both to `0` for OS-assigned ports.
+```bash
+docker compose -f docker-compose.worker.yml -f docker-compose.linux.yml up -d --build
+```
 
-## Status
+Notes:
 
-Active core backend of the sentinelCam stack.
+- Webcam passthrough in Docker is a Linux-only path.
+- On Windows and macOS Docker Desktop, use Docker only for `testsrc` / `synthetic`-style smoke tests or remote streams.
+
+## Project Structure
+
+- `webcam.py` - main processing app
+- `stream_server.py` - MJPEG stream and control API
+- `webrtc_server.py` - WebRTC signaling and media path
+- `run.sh` - Linux/macOS launcher
+- `run.bat` - Windows launcher
+- `webcam.properties` - shared launcher defaults
+- `docker-compose.worker.yml` - standalone worker compose
+- `docker-compose.worker-cam.yml` - Linux webcam passthrough override
+- `docker-compose.linux.yml` - Linux host-network override
+- `requirements.txt` - Python dependencies
+
+## Related Repos
+
+- Web UI: `../sentinelCam-web`
+- Edge capture node: `sentinelCam-edge`

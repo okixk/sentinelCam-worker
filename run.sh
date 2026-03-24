@@ -12,14 +12,15 @@ sentinelCam-worker launcher (run.sh)
 
 This script ONLY manages the worker repo:
   - creates/uses a venv in .runtime/venv
-  - installs python deps via an inline pip list (NO requirements.txt)
+  - installs python deps from requirements.txt
   - starts webcam.py
 
 The web repo prefers WebRTC at /api/webrtc/offer and falls back to http://WORKER_IP:8080/stream.mjpg.
 Default stream mode is auto. Use --stream mjpeg to force MJPEG-only mode.
 If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 By default the worker binds only to 127.0.0.1. Change DEFAULT_WEB_HOST in webcam.properties
-or pass --host 0.0.0.0 to expose it on the LAN.
+or pass --host 0.0.0.0 to expose it on the LAN. Wildcard binds like 0.0.0.0 and :: are
+treated as non-loopback addresses.
 Optional hardening in webcam.properties:
   WEB_AUTH_TOKEN=long-random-secret
   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
@@ -236,9 +237,7 @@ ensure_venv() {
 
 install_pip_deps() {
   python -m pip install --upgrade pip wheel setuptools >/dev/null
-  python -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc \
-    "av==14.1.0; python_version < '3.13'" \
-    "av==16.1.0; python_version >= '3.13'"
+  python -m pip install -r requirements.txt
 }
 
 SILENT=0

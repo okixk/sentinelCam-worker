@@ -6,6 +6,7 @@ Minimal MJPEG + JSON control API, *no* HTML UI.
 
 Endpoints:
   GET  /stream.mjpg    -> multipart/x-mixed-replace MJPEG stream
+  GET  /stream-raw.mjpg -> multipart/x-mixed-replace MJPEG stream (without YOLO overlay)
   GET  /frame.jpg      -> latest JPEG frame (with YOLO overlay)
   GET  /frame-raw.jpg  -> latest JPEG frame (without YOLO overlay)
   GET  /api/state      -> JSON state (CORS enabled)
@@ -39,30 +40,64 @@ from security import (
 class FrameHub:
     """Holds the latest encoded JPEG. Producer calls update(frame_bgr)."""
 
-    def __init__(self, jpeg_quality: int = 88):
+    def __init__(
+        self,
+        jpeg_quality: int = 88,
+        *,
+        eager_jpeg: bool = True,
+        copy_frame_on_update: bool = True,
+    ):
         self.jpeg_quality = int(max(10, min(95, jpeg_quality)))
+        self.eager_jpeg = bool(eager_jpeg)
+        self.copy_frame_on_update = bool(copy_frame_on_update)
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._jpeg: Optional[bytes] = None
         self._frame: Optional[np.ndarray] = None
         self._ts: float = 0.0
+        self._jpeg_ts: float = 0.0
+
+    def _encode_frame(self, frame_bgr: np.ndarray) -> Optional[bytes]:
+        ok, buf = cv2.imencode(".jpg", frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
+        if not ok:
+            return None
+        return buf.tobytes()
 
     def update(self, frame_bgr: np.ndarray) -> None:
         if frame_bgr is None:
             return
-        frame_copy = frame_bgr.copy()
-        ok, buf = cv2.imencode(".jpg", frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
-        data = buf.tobytes() if ok else None
+        frame_value = frame_bgr.copy() if self.copy_frame_on_update else np.ascontiguousarray(frame_bgr)
+        now = time.time()
+        data = self._encode_frame(frame_bgr) if self.eager_jpeg else None
         with self._cond:
-            self._frame = frame_copy
+            self._frame = frame_value
+            self._ts = now
             if data is not None:
                 self._jpeg = data
-            self._ts = time.time()
+                self._jpeg_ts = now
+            else:
+                self._jpeg = None
+                self._jpeg_ts = 0.0
             self._cond.notify_all()
 
-    def latest(self) -> Tuple[Optional[bytes], float]:
+    def _latest_lazy_jpeg(self) -> Tuple[Optional[bytes], float]:
         with self._lock:
-            return self._jpeg, self._ts
+            if self._jpeg is not None and self._jpeg_ts == self._ts:
+                return self._jpeg, self._ts
+            ts = self._ts
+            frame = None if self._frame is None else self._frame.copy()
+        if frame is None:
+            return None, ts
+        data = self._encode_frame(frame)
+        if data is not None:
+            with self._lock:
+                if ts == self._ts and (self._jpeg is None or self._jpeg_ts != ts):
+                    self._jpeg = data
+                    self._jpeg_ts = ts
+        return data, ts
+
+    def latest(self) -> Tuple[Optional[bytes], float]:
+        return self._latest_lazy_jpeg()
 
     def latest_frame(self) -> Tuple[Optional[np.ndarray], float]:
         with self._lock:
@@ -73,12 +108,13 @@ class FrameHub:
         end = time.time() + timeout
         with self._cond:
             while True:
-                if self._jpeg is not None and self._ts > last_ts:
-                    return self._jpeg, self._ts
+                if self._ts > last_ts:
+                    break
                 remaining = end - time.time()
                 if remaining <= 0:
-                    return self._jpeg, self._ts
+                    break
                 self._cond.wait(timeout=remaining)
+        return self._latest_lazy_jpeg()
 
     def wait_newer_frame(self, last_ts: float, timeout: float = 1.0) -> Tuple[Optional[np.ndarray], float]:
         end = time.time() + timeout
@@ -202,6 +238,7 @@ def run_mjpeg_server(
             p = urlparse(self.path).path
             if p not in (
                 "/stream.mjpg",
+                "/stream-raw.mjpg",
                 "/mjpeg",
                 "/video",
                 "/video_feed",
@@ -237,6 +274,10 @@ def run_mjpeg_server(
 
             if p in ("/stream.mjpg", "/mjpeg", "/video", "/video_feed"):
                 self._handle_stream()
+                return
+
+            if p == "/stream-raw.mjpg":
+                self._handle_stream(raw_hub if raw_hub is not None else hub)
                 return
 
             if p in ("/frame.jpg", "/snapshot.jpg"):
@@ -370,7 +411,8 @@ def run_mjpeg_server(
             self.end_headers()
             self.wfile.write(jpeg)
 
-        def _handle_stream(self) -> None:
+        def _handle_stream(self, source_hub: Optional[FrameHub] = None) -> None:
+            stream_source = source_hub if source_hub is not None else hub
             self.send_response(200)
             self.send_header("Content-Type", f"multipart/x-mixed-replace; boundary={boundary}")
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -385,7 +427,7 @@ def run_mjpeg_server(
                 while True:
                     if stop_event is not None and stop_event.is_set():
                         break
-                    jpeg, last_ts = hub.wait_newer(last_ts, timeout=1.0)
+                    jpeg, last_ts = stream_source.wait_newer(last_ts, timeout=1.0)
                     if not jpeg:
                         idle_seconds += 1.0
                         if idle_seconds >= 30.0:
