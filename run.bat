@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 REM sentinelCam-worker launcher (run.bat)
 REM - creates/uses venv in .runtime\venv
-REM - installs python deps via inline pip list (NO requirements.txt)
+REM - installs python deps from requirements.txt
 REM - asks for the desired camera/stream source if none was passed
 REM - validates the selected source before starting webcam.py
 
@@ -125,7 +125,7 @@ echo sentinelCam-worker launcher (run.bat)
 echo.
 echo This script ONLY manages the worker repo:
 echo   - creates/uses a venv in .runtime\venv
-echo   - installs python deps via an inline pip list (NO requirements.txt)
+echo   - installs python deps from requirements.txt
 echo   - starts webcam.py
 echo.
 echo The web repo prefers WebRTC at /api/webrtc/offer and falls back to http://WORKER_IP:8080/stream.mjpg.
@@ -133,13 +133,17 @@ echo Default stream mode is auto. Use --stream mjpeg to force MJPEG-only mode.
 echo By default the worker binds only to 127.0.0.1.
 echo If --host is omitted, choose 1 for localhost or 2 for 0.0.0.0.
 echo Change DEFAULT_WEB_HOST in webcam.properties or pass --host 0.0.0.0 for LAN access.
+echo Wildcard binds like 0.0.0.0 and :: are treated as non-loopback addresses.
 echo Optional hardening in webcam.properties:
 echo   WEB_AUTH_TOKEN=long-random-secret
 echo   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 echo Stream quality defaults in webcam.properties:
 echo   DEFAULT_STREAM_MODE=auto
-echo   DEFAULT_WEBRTC_BITRATE_KBPS=2500
-echo   DEFAULT_STREAM_QUALITY=high
+echo   DEFAULT_WEBRTC_BITRATE_KBPS=-1
+echo   DEFAULT_WEBRTC_FPS=0
+echo   DEFAULT_STREAM_QUALITY=auto
+echo   DEFAULT_CPU_THREADS=0
+echo   DEFAULT_CAMERA_FPS=0
 echo   DEFAULT_JPEG_QUALITY=88
 echo.
 echo Examples:
@@ -149,7 +153,9 @@ echo   run.bat --no-web
 echo   run.bat --window
 echo   run.bat --host 0.0.0.0 --port 8080
 echo   run.bat --stream webrtc
-echo   run.bat --webrtc-bitrate 2500
+echo   run.bat --webrtc-bitrate 8000
+echo   run.bat --webrtc-fps 60
+echo   run.bat --camera-fps 60
 echo   run.bat --stream-quality ultra
 exit /b 0
 
@@ -201,7 +207,7 @@ set "PIP_CACHE_DIR=%SCRIPT_DIR%%PIP_CACHE_DIR_LOCAL%"
 
 if "%DO_INSTALL%"=="1" (
   "%PYTHON_EXE%" -m pip install --upgrade pip wheel setuptools >nul 2>&1
-  "%PYTHON_EXE%" -m pip install ultralytics opencv-python numpy "lap>=0.5.12" aiohttp aiortc av
+  "%PYTHON_EXE%" -m pip install -r requirements.txt
   if errorlevel 1 exit /b 1
 ) else (
   echo Skipping install ^(--no-install^). Assuming venv + deps already exist.

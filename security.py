@@ -11,6 +11,7 @@ identical security logic without duplication.
 from __future__ import annotations
 
 import secrets
+import ipaddress
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 from urllib.parse import urlparse
@@ -119,6 +120,13 @@ def check_bearer_token(
 
 def is_loopback_bind(host: str) -> bool:
     """Return True if *host* is a loopback or wildcard bind address."""
-    return (host or "").strip().lower() in (
-        "127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "",
-    )
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(value.strip("[]"))
+    except ValueError:
+        return False
+    return bool(ip.is_loopback)

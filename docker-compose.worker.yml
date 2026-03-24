@@ -1,0 +1,29 @@
+# Cross-platform standalone worker compose.
+# Use docker-compose.linux.yml on Linux if you want the worker container to stay
+# on host loopback (127.0.0.1) for a host-networked proxy such as the legacy
+# sentinelCam-web docker-compose.linux.yml override.
+services:
+  worker:
+    build: .
+    ports:
+      - "8080:8080"
+      - "50000-51000:50000-51000/udp"
+    environment:
+      WEB_AUTH_TOKEN: ${WORKER_TOKEN:-}
+      WEB_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--source"
+      - "${WORKER_SOURCE:-testsrc}"
+      - "--no-window"
+      - "--stream"
+      - "auto"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

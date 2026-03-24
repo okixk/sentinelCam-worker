@@ -1,0 +1,9 @@
+.git
+.runtime
+__pycache__
+*.pyc
+runs/
+weights/
+.env
+*.md
+LICENSE
