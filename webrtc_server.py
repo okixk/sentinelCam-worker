@@ -46,7 +46,7 @@ _H264_ENCODER_CANDIDATES: List[Tuple[str, dict, str, str]] = [
     ("h264_amf",   {"usage": "ultralowlatency", "quality": "speed"},               "AMD AMF",      "nv12"),
     ("h264_qsv",   {"preset": "veryfast", "async_depth": "1", "low_power": "1", "look_ahead": "0"}, "Intel QSV", "nv12"),
     ("h264_videotoolbox", {},                                                       "Apple VideoToolbox", "nv12"),
-    ("libx264",    {"tune": "zerolatency"},                                         "CPU (libx264)", "yuv420p"),
+    ("libx264",    {"preset": "veryfast", "tune": "zerolatency"},                    "CPU (libx264)", "yuv420p"),
 ]
 
 
@@ -70,8 +70,6 @@ def _detect_best_h264_encoder() -> Tuple[str, dict, str, str]:
             c.framerate = fractions.Fraction(30, 1)
             c.time_base = fractions.Fraction(1, 30)
             c.options = dict(opts)
-            if codec_name == "libx264":
-                c.profile = "Baseline"
             frame = av.VideoFrame.from_ndarray(
                 np.zeros((64, 64, 3), dtype=np.uint8), format="bgr24"
             )
@@ -81,7 +79,8 @@ def _detect_best_h264_encoder() -> Tuple[str, dict, str, str]:
             list(c.encode(None))  # flush
             _logger.info("H.264 encoder detected: %s (%s)", codec_name, label)
             return codec_name, opts, label, pix_fmt
-        except Exception:
+        except Exception as exc:
+            _logger.debug("H.264 encoder probe failed for %s (%s): %s", codec_name, label, exc)
             continue
 
     # Should not happen since libx264 is always bundled, but be safe
@@ -140,8 +139,8 @@ def _install_gpu_encoder(codec_name: str, codec_options: dict, pix_fmt: str = "y
             self.codec.time_base = fractions.Fraction(1, target_fps)
             opts = dict(codec_options)
             if codec_name == "libx264":
-                opts.setdefault("level", "31")
-                self.codec.profile = "Baseline"
+                opts.setdefault("preset", "veryfast")
+                opts.setdefault("tune", "zerolatency")
             self.codec.options = opts
 
         data_to_send = b""
@@ -214,8 +213,8 @@ class SharedEncoder:
                 codec.time_base = fractions.Fraction(1, self._target_fps)
                 opts = dict(self._codec_options)
                 if self._codec_name == "libx264":
-                    opts.setdefault("level", "31")
-                    codec.profile = "Baseline"
+                    opts.setdefault("preset", "veryfast")
+                    opts.setdefault("tune", "zerolatency")
                 codec.options = opts
 
             vf.pts = int(ts * 90000)
@@ -326,7 +325,7 @@ def _configure_ice_port_range(port_min: int, port_max: int) -> None:
     _orig_gather = aioice.ice.Connection.gather_candidates
 
     async def _gather_restricted(self):
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         _real_create = loop.create_datagram_endpoint
         _allocated: set = set()
 
@@ -811,18 +810,22 @@ async def _run_webrtc_server(
     if int(ice_port_min) > 0 and int(ice_port_max) >= int(ice_port_min):
         _configure_ice_port_range(int(ice_port_min), int(ice_port_max))
 
-    # Install GPU / HW encoder patch (applies even for frame-sharing's fallback per-client path)
     target_fps = _normalize_video_fps(target_fps)
 
-    # Install the custom H.264 encoder patch for both HW and CPU H264 paths,
-    # so bitrate/fps overrides apply consistently.
-    _install_gpu_encoder(hw_encoder_name, hw_encoder_opts, hw_pix_fmt, target_fps=target_fps)
+    if hw_encoder_name != "libx264":
+        # Install the custom encoder only for actual hardware encoders. The
+        # built-in aiortc CPU H.264 path keeps browser packetization/fmtp sane.
+        _install_gpu_encoder(hw_encoder_name, hw_encoder_opts, hw_pix_fmt, target_fps=target_fps)
+    else:
+        _logger.info("WebRTC CPU fallback: using aiortc's built-in encoder path instead of the custom H.264 patch.")
 
-    # Force H264 codec when we have a GPU encoder or frame sharing configured,
-    # because the GPU encoder monkey-patch only works for H264.
     effective_codec_pref = codec_preference
     if (codec_preference or "auto").strip().lower() in ("", "auto"):
-        effective_codec_pref = "h264"
+        if hw_encoder_name == "libx264":
+            effective_codec_pref = "vp8"
+            _logger.info("WebRTC auto codec resolved to VP8 on CPU fallback; use --webrtc-codec h264 to force H.264.")
+        else:
+            effective_codec_pref = "h264"
 
     # SharedEncoder + SharedVideoTrack is disabled: aiortc expects VideoFrame
     # objects from track.recv(), not pre-encoded av.Packet objects.
@@ -929,7 +932,7 @@ async def _run_webrtc_server(
 
         # Per-IP rate limiting
         client_ip = request.remote or "unknown"
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
         timestamps = _offer_timestamps.get(client_ip, [])
         timestamps = [t for t in timestamps if now - t < _OFFER_RATE_WINDOW]
         if len(timestamps) >= _OFFER_RATE_LIMIT_PER_IP:
@@ -952,7 +955,7 @@ async def _run_webrtc_server(
 
         pc = RTCPeerConnection()
         pcs.add(pc)
-        pc_creation_times[pc] = asyncio.get_event_loop().time()
+        pc_creation_times[pc] = asyncio.get_running_loop().time()
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
@@ -1135,7 +1138,7 @@ async def _run_webrtc_server(
     async def _cleanup_stalled_pcs() -> None:
         while True:
             await asyncio.sleep(30)
-            now = asyncio.get_event_loop().time()
+            now = asyncio.get_running_loop().time()
             stale: List[RTCPeerConnection] = []
             for pc in list(pcs):
                 state = pc.connectionState
@@ -1204,7 +1207,14 @@ def run_webrtc_server(
     if use_gpu:
         enc_name, enc_opts, enc_label, enc_pix_fmt = _detect_best_h264_encoder()
     else:
-        enc_name, enc_opts, enc_label, enc_pix_fmt = "libx264", {"tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
+        enc_name, enc_opts, enc_label, enc_pix_fmt = "libx264", {"preset": "veryfast", "tune": "zerolatency"}, "CPU (libx264)", "yuv420p"
+    if enc_name == "libx264":
+        if int(target_fps) > 30:
+            _logger.info("CPU H.264 fallback detected; capping WebRTC fps from %d to 30", int(target_fps))
+            target_fps = 30
+        if int(target_bitrate_kbps) > 5000:
+            _logger.info("CPU H.264 fallback detected; capping WebRTC bitrate from %d kbps to 5000 kbps", int(target_bitrate_kbps))
+            target_bitrate_kbps = 5000
     _logger.info("WebRTC H.264 encoder: %s", enc_label)
     _logger.info("WebRTC target fps: %d", _normalize_video_fps(target_fps))
 

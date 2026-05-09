@@ -37,6 +37,7 @@ from ultralytics import YOLO
 # It exposes only the stream + JSON APIs; the actual website lives in sentinelCam-web.
 from stream_server import FrameHub, run_mjpeg_server
 from security import ControlAPI, SecurityConfig
+from context_detector import DEFAULT_CONTEXT_PROMPT, OllamaContextDetector
 webrtc_import_error = None
 try:
     from webrtc_server import run_webrtc_server
@@ -380,6 +381,18 @@ def resolve_device(device_arg: str) -> str:
     return device_arg
 
 
+def _torch_device_arg(device: str) -> str:
+    value = str(device or "cpu")
+    if value.isdigit():
+        return f"cuda:{value}"
+    return value
+
+
+def _is_cuda_device(device: str) -> bool:
+    value = str(device or "").lower()
+    return value.isdigit() or value.startswith("cuda")
+
+
 def _device_status_summary(device: str) -> str:
     return (
         f"resolved={device} "
@@ -387,6 +400,32 @@ def _device_status_summary(device: str) -> str:
         f"mps_available={_mps_available()}, "
         f"apple_silicon={_is_apple_silicon()})"
     )
+
+
+def _configure_torch_inference(device: str) -> None:
+    if torch is None:
+        return
+    if _is_cuda_device(device):
+        try:
+            torch.backends.cudnn.benchmark = True
+        except Exception:
+            pass
+        try:
+            torch.set_float32_matmul_precision("high")
+        except Exception:
+            pass
+
+
+def _prepare_yolo_model(model: YOLO, device: str) -> YOLO:
+    try:
+        model.to(_torch_device_arg(device))
+    except Exception:
+        pass
+    try:
+        model.fuse()
+    except Exception:
+        pass
+    return model
 
 
 def _system_memory_bytes() -> int:
@@ -743,8 +782,23 @@ def pick_preset(preset_name: str, device_resolved: str, presets: Dict[str, Prese
     is_cpu = (device_resolved == "cpu")
 
     if pn in ("yolo", "auto", "default", ""):
-        # your requested default behavior
-        chosen = "yolov8n" if is_cpu else "yolo26x"
+        if is_cpu:
+            env_choice = (os.environ.get("DEFAULT_PRESET_CPU", "") or "").strip().lower()
+            chosen = env_choice if env_choice in presets else "yolov8n"
+        else:
+            env_choice = (os.environ.get("DEFAULT_PRESET_ACCEL", "") or "").strip().lower()
+            if env_choice in presets:
+                chosen = env_choice
+            else:
+                vram_gb = _cuda_total_memory_gb(device_resolved)
+                if vram_gb >= 16:
+                    chosen = "yolov8l"
+                elif vram_gb >= 8:
+                    chosen = "yolov8m"
+                elif vram_gb >= 6:
+                    chosen = "yolov8s"
+                else:
+                    chosen = "yolov8n"
         return chosen, presets[chosen]
 
     if pn not in presets:
@@ -756,7 +810,7 @@ def pick_preset(preset_name: str, device_resolved: str, presets: Dict[str, Prese
 def print_presets(presets: Dict[str, Preset]):
     lines = []
     lines.append("Presets (use --preset <name>):")
-    lines.append("  yolo    -> auto CPU/GPU default (CPU=yolov8n, GPU=yolo26x)")
+    lines.append("  yolo    -> auto hardware default (honors DEFAULT_PRESET_CPU / DEFAULT_PRESET_ACCEL)")
     for k in sorted(presets.keys()):
         p = presets[k]
         flag = " [GPU-only]" if p.requires_cuda else ""
@@ -866,6 +920,13 @@ STREAM_QUALITY_PRESETS: Dict[str, Dict[str, int]] = {
     "ultra": {"width": 1920, "height": 1080, "jpeg_quality": 92},
 }
 
+CONTEXT_PROFILE_MODELS: Dict[str, str] = {
+    "low": "moondream",
+    "mid": "gemma3:4b",
+    "high": "llama3.2-vision:11b",
+    "max": "llava:13b",
+}
+
 
 @dataclass(frozen=True)
 class RuntimeTuningProfile:
@@ -948,30 +1009,31 @@ def _pick_runtime_tuning_profile(device: str, mode: str) -> RuntimeTuningProfile
         if vram_gb >= 16:
             return RuntimeTuningProfile(
                 name="cuda-performance",
-                stream_quality="ultra",
-                imgsz=1280,
-                webrtc_bitrate_kbps=9000,
-                pose_every=2,
+                stream_quality="high",
+                imgsz=960,
+                webrtc_bitrate_kbps=6500,
+                pose_every=8,
                 note=f"CUDA high-memory tier ({vram_gb:.1f} GiB VRAM)",
                 webrtc_fps=60,
             )
         if vram_gb >= 8:
             return RuntimeTuningProfile(
                 name="cuda-balanced",
-                stream_quality="ultra",
-                imgsz=1152,
-                webrtc_bitrate_kbps=7500,
-                pose_every=2,
+                stream_quality="high",
+                imgsz=832,
+                webrtc_bitrate_kbps=5000,
+                pose_every=10,
                 note=f"CUDA balanced tier ({vram_gb:.1f} GiB VRAM)",
                 webrtc_fps=60,
             )
         return RuntimeTuningProfile(
             name="cuda-efficient",
-            stream_quality="high",
-            imgsz=960,
-            webrtc_bitrate_kbps=5500,
-            pose_every=3,
+            stream_quality="medium",
+            imgsz=736,
+            webrtc_bitrate_kbps=3500,
+            pose_every=12,
             note=f"CUDA entry tier ({vram_gb:.1f} GiB VRAM)",
+            webrtc_fps=30,
         )
 
     if cpu_count >= 12 and mem_gb >= 24:
@@ -1002,6 +1064,29 @@ def _pick_runtime_tuning_profile(device: str, mode: str) -> RuntimeTuningProfile
     )
 
 
+def _pick_context_profile(device: str, tuning_profile: Optional[RuntimeTuningProfile], requested: str) -> str:
+    value = (requested or "auto").strip().lower()
+    if value in CONTEXT_PROFILE_MODELS:
+        return value
+    if value not in ("", "auto"):
+        raise SystemExit("--context-profile must be auto, low, mid, high, or max.")
+    if device == "cpu":
+        return "low"
+    if device == "mps":
+        mem_gb = _system_memory_gb()
+        if mem_gb >= 32:
+            return "max"
+        if mem_gb >= 24:
+            return "high"
+        return "mid"
+    vram_gb = _cuda_total_memory_gb(device)
+    if vram_gb >= 16:
+        return "max"
+    if vram_gb >= 10:
+        return "high"
+    return "mid"
+
+
 def _apply_runtime_tuning(
     args: argparse.Namespace,
     argv: List[str],
@@ -1025,6 +1110,14 @@ def _apply_runtime_tuning(
         args.webrtc_fps = int(profile.webrtc_fps)
 
     return profile
+
+
+def _resolve_context_model(args: argparse.Namespace, device: str, tuning_profile: Optional[RuntimeTuningProfile]) -> None:
+    model = str(getattr(args, "context_model", "") or "").strip()
+    profile = _pick_context_profile(device, tuning_profile, str(getattr(args, "context_profile", "auto") or "auto"))
+    args.context_profile = profile
+    if not model or model.lower() == "auto":
+        args.context_model = CONTEXT_PROFILE_MODELS[profile]
 
 
 def _resolve_webrtc_auto_defaults(
@@ -1197,7 +1290,7 @@ def main():
         "--preset",
         type=str,
         default="yolo",
-        help="Model preset name. 'yolo' = auto CPU/GPU default (CPU=yolov8n, GPU=yolo26x).",
+        help="Model preset name. 'yolo' = hardware default, with DEFAULT_PRESET_CPU / DEFAULT_PRESET_ACCEL overrides.",
     )
     ap.add_argument("--list-presets", action="store_true", help="Print preset list and exit")
     ap.add_argument("--vcam-notes", action="store_true", help="Print virtual camera tips and exit")
@@ -1247,6 +1340,19 @@ def main():
     )
     ap.add_argument("--pose-kpt-conf", type=float, default=0.35, help="Keypoint confidence threshold")
     ap.add_argument(
+        "--adaptive-pose",
+        type=int,
+        default=_env_int("DEFAULT_ADAPTIVE_POSE", 1),
+        choices=[0, 1],
+        help="Automatically skip pose passes when detection FPS is under pressure (1=on, 0=off).",
+    )
+    ap.add_argument(
+        "--pose-min-yolo-fps",
+        type=float,
+        default=float(os.environ.get("DEFAULT_POSE_MIN_YOLO_FPS", "12.0") or "12.0"),
+        help="When --adaptive-pose is on, skip pose while YOLO FPS is below this value (0 = no guard).",
+    )
+    ap.add_argument(
         "--no-draw-pose",
         action="store_true",
         help="Disable drawing pose skeleton/keypoints (pose still used for sitting/face)",
@@ -1254,6 +1360,20 @@ def main():
 
     # Tracking
     ap.add_argument("--tracker", type=str, default="bytetrack.yaml", help="Ultralytics tracker config")
+    ap.add_argument(
+        "--tracker-mode",
+        type=str,
+        default=(os.environ.get("DEFAULT_TRACKER_MODE", "simple") or "simple").strip().lower(),
+        choices=["simple", "ultralytics", "none"],
+        help="Tracking backend. simple avoids Ultralytics tracker overhead and is the default for live streaming.",
+    )
+    ap.add_argument(
+        "--half",
+        type=int,
+        default=_env_int("DEFAULT_YOLO_HALF", 1),
+        choices=[0, 1],
+        help="Use FP16 inference on CUDA devices (1=on, 0=off).",
+    )
 
     # Logging noise control
     ap.add_argument(
@@ -1347,7 +1467,7 @@ def main():
     ap.add_argument(
         "--webrtc-codec",
         type=str,
-        default="auto",
+        default=(os.environ.get("DEFAULT_WEBRTC_CODEC", "auto") or "auto").strip().lower(),
         choices=["auto", "h264", "vp8", "vp9", "av1"],
         help="Best-effort codec preference for WebRTC (when --stream webrtc).",
     )
@@ -1389,14 +1509,92 @@ def main():
         choices=[0, 1],
         help="Encode once, share to all clients (1=on, 0=off).",
     )
+    ap.add_argument(
+        "--context",
+        action="store_true",
+        default=bool(_env_int("DEFAULT_CONTEXT_ENABLED", 0)),
+        help="Enable Ollama vision context detection ('what is happening') in the background.",
+    )
+    ap.add_argument(
+        "--context-model",
+        type=str,
+        default=(os.environ.get("DEFAULT_CONTEXT_MODEL", "auto") or "auto").strip(),
+        help="Ollama vision model for context detection. Use auto to pick from --context-profile.",
+    )
+    ap.add_argument(
+        "--context-profile",
+        type=str,
+        default=(os.environ.get("DEFAULT_CONTEXT_PROFILE", "auto") or "auto").strip().lower(),
+        choices=["auto", "low", "mid", "high", "max"],
+        help="Context model profile: low=CPU, mid=small GPU, high/max=larger GPU.",
+    )
+    ap.add_argument(
+        "--context-host",
+        type=str,
+        default=(os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434") or "http://127.0.0.1:11434").strip(),
+        help="Ollama host URL for context detection.",
+    )
+    ap.add_argument(
+        "--context-interval",
+        type=float,
+        default=float(os.environ.get("DEFAULT_CONTEXT_INTERVAL", "30.0") or "30.0"),
+        help="Seconds between context detections.",
+    )
+    ap.add_argument(
+        "--context-trigger",
+        type=str,
+        default=(os.environ.get("DEFAULT_CONTEXT_TRIGGER", "person_appears") or "person_appears").strip().lower(),
+        choices=["interval", "person_appears", "person_present", "manual"],
+        help="When to run context detection.",
+    )
+    ap.add_argument(
+        "--context-cooldown",
+        type=float,
+        default=float(os.environ.get("DEFAULT_CONTEXT_COOLDOWN", "60.0") or "60.0"),
+        help="Minimum seconds between trigger-based context detections.",
+    )
+    ap.add_argument(
+        "--context-timeout",
+        type=float,
+        default=float(os.environ.get("DEFAULT_CONTEXT_TIMEOUT", "45.0") or "45.0"),
+        help="Ollama request timeout in seconds for context detection.",
+    )
+    ap.add_argument(
+        "--context-min-yolo-fps",
+        type=float,
+        default=float(os.environ.get("DEFAULT_CONTEXT_MIN_YOLO_FPS", "15.0") or "15.0"),
+        help="Skip automatic context analysis while YOLO FPS is below this value (0 = no guard).",
+    )
+    ap.add_argument(
+        "--context-image-width",
+        type=int,
+        default=_env_int("DEFAULT_CONTEXT_IMAGE_WIDTH", 512),
+        help="Resize sampled context frames to this max width before sending to Ollama.",
+    )
+    ap.add_argument(
+        "--context-overlay",
+        action="store_true",
+        default=bool(_env_int("DEFAULT_CONTEXT_OVERLAY", 1)),
+        help="Draw the latest context sentence on the stream overlay when overlay is enabled.",
+    )
+    ap.add_argument(
+        "--context-prompt",
+        type=str,
+        default=(os.environ.get("DEFAULT_CONTEXT_PROMPT", "") or DEFAULT_CONTEXT_PROMPT),
+        help="Prompt sent to the Ollama vision model.",
+    )
 
 
     raw_argv = sys.argv[1:]
     args = ap.parse_args()
     device = resolve_device(args.device)
+    _configure_torch_inference(device)
     tuning_profile = _apply_runtime_tuning(args, raw_argv, device)
     _resolve_webrtc_auto_defaults(args, device, tuning_profile)
+    _resolve_context_model(args, device, tuning_profile)
     stream_quality_name = _apply_stream_quality_profile(args, raw_argv)
+    if float(getattr(args, "max_fps", 0) or 0) > 0 and int(getattr(args, "webrtc_fps", 0) or 0) > int(float(args.max_fps)):
+        args.webrtc_fps = max(1, int(float(args.max_fps)))
 
     if args.help_web:
         print("sentinelCam web options")
@@ -1413,6 +1611,8 @@ def main():
         print("  WebRTC port range: --webrtc-port-min PORT --webrtc-port-max PORT")
         print("  WebRTC GPU: --webrtc-gpu 0|1  (1=auto-detect GPU encoder, 0=force CPU)")
         print("  Frame sharing: --webrtc-frame-sharing 0|1  (1=encode once for all clients)")
+        print("  Context: --context --context-profile auto|low|mid|high|max --context-model auto|moondream|gemma3:4b|llava|llama3.2-vision:11b")
+        print("  Context tuning: --context-trigger interval|person_appears|person_present|manual --context-cooldown SEC")
         print("  Stream quality: --stream-quality auto|low|medium|high|ultra")
         print("  MJPEG:  --jpeg-quality 10-95")
         print("  CPU threads: --cpu-threads N  (0=auto=all logical cores)")
@@ -1430,6 +1630,8 @@ def main():
         raise SystemExit("--cpu-threads must be >= 0.")
     if int(args.pose_every) <= 0:
         raise SystemExit("--pose-every must be greater than 0.")
+    if float(getattr(args, "pose_min_yolo_fps", 0.0) or 0.0) < 0:
+        raise SystemExit("--pose-min-yolo-fps must be >= 0.")
     if int(args.webrtc_fps) < 0:
         raise SystemExit("--webrtc-fps must be >= 0.")
     if not (10 <= int(args.jpeg_quality) <= 95):
@@ -1442,6 +1644,15 @@ def main():
         raise SystemExit("--webrtc-port-min and --webrtc-port-max must both be set or both be 0.")
     if int(args.webrtc_port_min) > 0 and int(args.webrtc_port_min) > int(args.webrtc_port_max):
         raise SystemExit("--webrtc-port-min must be <= --webrtc-port-max.")
+    if float(args.context_interval) < 1.0:
+        raise SystemExit("--context-interval must be >= 1.0.")
+    if float(args.context_cooldown) < 1.0:
+        raise SystemExit("--context-cooldown must be >= 1.0.")
+    if float(args.context_timeout) <= 0:
+        raise SystemExit("--context-timeout must be greater than 0.")
+    if int(args.context_image_width) <= 0:
+        raise SystemExit("--context-image-width must be greater than 0.")
+    use_half = bool(int(args.half)) and _is_cuda_device(device)
 
     allowed_web_origins = _parse_allowed_origins(args.web_allow_origin)
     web_auth_token = (args.web_auth_token or "").strip()
@@ -1510,6 +1721,13 @@ def main():
             int(args.webrtc_fps),
             int(args.pose_every),
             tuning_profile.note,
+        )
+    if bool(args.context):
+        _log.info(
+            "Context detection: model=%s  interval=%.1fs  host=%s",
+            str(args.context_model),
+            float(args.context_interval),
+            str(args.context_host),
         )
 
     # Choose preset (unless user forces --model)
@@ -1580,10 +1798,10 @@ def main():
             else:
                 pw = resolve_weights(p.pose) if p.pose else resolve_weights("yolov8n-pose.pt")
             _ensure_weights_available(pw, "Pose")
-            pm = YOLO(pw)
+            pm = _prepare_yolo_model(YOLO(pw), device)
             pw = _promote_weight_to_runtime(pw)
 
-        dm = YOLO(dw)
+        dm = _prepare_yolo_model(YOLO(dw), device)
         dw = _promote_weight_to_runtime(dw)
 
         return pn, dm, pm, dw, pw
@@ -1626,6 +1844,8 @@ def main():
 
     # Track history for speed estimation: id -> deque[(t, cx, cy)]
     tracks = defaultdict(lambda: deque(maxlen=30))
+    simple_track_boxes: Dict[int, Tuple[np.ndarray, int, int]] = {}
+    next_simple_track_id = 1
     # Cache sitting / face / keypoints per track id
     sit_status: Dict[int, Optional[bool]] = {}
     face_point: Dict[int, Optional[Tuple[float, float]]] = {}
@@ -1634,6 +1854,32 @@ def main():
     frame_count = 0
     last_fps_time = time.time()
     fps_smooth = 0.0
+    perf_stats: Dict[str, float] = {"capture_ms": 0.0, "detect_ms": 0.0, "pose_ms": 0.0, "total_ms": 0.0}
+
+    def _assign_simple_track_ids(boxes_arr, clss_arr) -> np.ndarray:
+        nonlocal next_simple_track_id
+        assigned: List[int] = []
+        used: set[int] = set()
+        for box, cls_id in zip(boxes_arr, clss_arr):
+            best_id = None
+            best_iou = 0.0
+            for track_id, (prev_box, prev_cls, _seen_frame) in simple_track_boxes.items():
+                if track_id in used or int(prev_cls) != int(cls_id):
+                    continue
+                score = iou_xyxy(box, prev_box)
+                if score > best_iou:
+                    best_iou = score
+                    best_id = track_id
+            if best_id is None or best_iou < 0.25:
+                best_id = next_simple_track_id
+                next_simple_track_id += 1
+            simple_track_boxes[int(best_id)] = (np.asarray(box, dtype=float), int(cls_id), int(frame_count))
+            used.add(int(best_id))
+            assigned.append(int(best_id))
+        stale = [track_id for track_id, (_box, _cls, seen) in simple_track_boxes.items() if frame_count - seen > 45]
+        for track_id in stale:
+            simple_track_boxes.pop(track_id, None)
+        return np.asarray(assigned, dtype=int)
 
     # -----------------------------
     # Output mode: Web server (default) + optional preview window
@@ -1663,8 +1909,29 @@ def main():
         "overlay_enabled": overlay_enabled,
         "inference_enabled": inference_enabled,
         "fps": 0.0,
+        "perf": dict(perf_stats),
         "det": os.path.basename(str(det_weights)) if det_weights else None,
         "pose": os.path.basename(str(pose_weights)) if pose_weights else None,
+        "context_enabled": bool(args.context),
+        "context_model": str(args.context_model),
+        "context_profile": str(args.context_profile),
+        "context_models": [],
+        "context_models_error": None,
+        "context_busy": False,
+        "context_trigger": str(args.context_trigger),
+        "context_cooldown": float(args.context_cooldown),
+        "context": {
+            "enabled": bool(args.context),
+            "model": str(args.context_model),
+            "trigger": str(args.context_trigger),
+            "cooldown": float(args.context_cooldown),
+            "summary": None,
+            "detail": None,
+            "objects": [],
+            "updated_at": None,
+            "latency_ms": None,
+            "error": None,
+        },
         "cmd_seq_applied": 0,
         "cmd_last": None,
         "busy": False,
@@ -1688,20 +1955,64 @@ def main():
         with state_lock:
             return dict(web_state)
 
+    def _update_context_state(result: Dict[str, object]) -> None:
+        _update_state(
+            context=dict(result or {}),
+            context_enabled=bool((result or {}).get("enabled", False)),
+            context_model=str((result or {}).get("model") or args.context_model),
+            context_profile=str(context_profile),
+            context_models=context_detector.models(),
+            context_models_error=context_detector.models_error(),
+            context_busy=context_detector.busy(),
+            context_trigger=str((result or {}).get("trigger") or context_trigger),
+            context_cooldown=float((result or {}).get("cooldown") or context_cooldown),
+        )
+
+    context_detector = OllamaContextDetector(
+        model=str(args.context_model),
+        host=str(args.context_host),
+        prompt=str(args.context_prompt),
+        interval=float(args.context_interval),
+        timeout=float(args.context_timeout),
+        image_width=int(args.context_image_width),
+        jpeg_quality=int(args.jpeg_quality),
+        enabled=bool(args.context),
+        state_callback=_update_context_state,
+    )
+    context_trigger = str(args.context_trigger)
+    context_profile = str(args.context_profile)
+    context_cooldown = float(args.context_cooldown)
+    last_context_trigger_ts = 0.0
+    last_context_person_present = False
+    force_context_next_frame = False
+    context_detector.configure(interval=float(args.context_interval), trigger=context_trigger, cooldown=context_cooldown)
+    context_detector.refresh_models_async(force=True)
+
     def _publish_runtime_state(*, force: bool = False) -> None:
         nonlocal last_runtime_state_publish
         now = time.time()
         if not force and (now - last_runtime_state_publish) < state_publish_interval:
             return
         last_runtime_state_publish = now
+        context_detector.refresh_models_async()
         _update_state(
             preset=active_preset_name,
             pose_enabled=pose_enabled,
             overlay_enabled=overlay_enabled,
             inference_enabled=inference_enabled,
             fps=float(fps_smooth),
+            perf=dict(perf_stats),
             det=os.path.basename(str(det_weights)) if det_weights else None,
             pose=os.path.basename(str(pose_weights)) if pose_weights else None,
+            context=context_detector.latest(),
+            context_enabled=context_detector.enabled(),
+            context_model=context_detector.model,
+            context_profile=context_profile,
+            context_models=context_detector.models(),
+            context_models_error=context_detector.models_error(),
+            context_busy=context_detector.busy(),
+            context_trigger=context_trigger,
+            context_cooldown=context_cooldown,
             last_error=None,
             last_error_ts=None,
             worker_alive=True,
@@ -1735,6 +2046,15 @@ def main():
             "toggleinference": "toggle_inference",
             "model_toggle": "toggle_inference",
             "togglemodel": "toggle_inference",
+            "context_toggle": "toggle_context",
+            "togglecontext": "toggle_context",
+            "context_analyze": "context_analyze",
+            "analyze_context": "context_analyze",
+            "context_stop": "context_emergency_stop",
+            "stop_context": "context_emergency_stop",
+            "context_emergency": "context_emergency_stop",
+            "ai_stop": "context_emergency_stop",
+            "stop_ai": "context_emergency_stop",
         }
         return aliases.get(cmd, cmd)
 
@@ -1765,6 +2085,8 @@ def main():
                         ("overlay", "overlay_on", "overlay_off"),
                         ("inference_enabled", "inference_on", "inference_off"),
                         ("inference", "inference_on", "inference_off"),
+                        ("context_enabled", "context_on", "context_off"),
+                        ("context", "context_on", "context_off"),
                     )
                     for field, on_cmd, off_cmd in bool_fields:
                         if field in payload and isinstance(payload.get(field), bool):
@@ -1786,6 +2108,8 @@ def main():
                         cmd = "overlay_on" if value else "overlay_off"
                     elif normalized in ("inference", "toggle_inference", "model"):
                         cmd = "inference_on" if value else "inference_off"
+                    elif normalized in ("context", "toggle_context"):
+                        cmd = "context_on" if value else "context_off"
             else:
                 cmd = str(payload).strip().lower()
         except Exception:
@@ -1813,14 +2137,21 @@ def main():
         if cmd in ("stop", "quit", "exit", "q"):
             stop_event.set()
 
-        cmd_q.put((seq, cmd))
+        if isinstance(payload, dict):
+            forwarded = dict(payload)
+            forwarded["cmd"] = cmd
+            forwarded["seq"] = seq
+            cmd_q.put(forwarded)
+        else:
+            cmd_q.put((seq, cmd))
 
 
 
     if web_enabled:
+        requested_hub_mode = (args.stream or "auto").strip().lower()
         hub = FrameHub(
             jpeg_quality=args.jpeg_quality,
-            eager_jpeg=True,
+            eager_jpeg=(requested_hub_mode == "mjpeg"),
             copy_frame_on_update=False,
         )
         raw_frame_hub = FrameHub(
@@ -1891,7 +2222,7 @@ def main():
                 _, p = pick_preset(active_preset_name, device, presets)
                 pw = resolve_weights(p.pose) if p.pose else resolve_weights("yolov8n-pose.pt")
                 _ensure_weights_available(pw, "Pose")
-                pose_model = YOLO(pw)
+                pose_model = _prepare_yolo_model(YOLO(pw), device)
                 pose_weights = _promote_weight_to_runtime(pw)
             except (Exception, SystemExit) as e:
                 _log.error("Could not enable pose: %s: %s", type(e).__name__, e)
@@ -1910,6 +2241,7 @@ def main():
 
     def _clear_runtime_tracking() -> None:
         tracks.clear()
+        simple_track_boxes.clear()
         sit_status.clear()
         face_point.clear()
         pose_cache.clear()
@@ -1950,12 +2282,105 @@ def main():
         _log.info("Inference -> off (stream-only)")
 
 
+    def _set_context(enable: bool) -> None:
+        context_detector.set_enabled(bool(enable))
+        _update_context_state(context_detector.latest())
+        _log.info("Context detection -> %s", "on" if context_detector.enabled() else "off")
+
+    def _emergency_stop_context() -> None:
+        nonlocal force_context_next_frame
+        force_context_next_frame = False
+        context_detector.emergency_stop()
+        _update_context_state(context_detector.latest())
+        _log.warning("Context detection emergency stop requested")
+
+
+    def _context_model_for_profile(profile: str, requested_model: str) -> str:
+        selected_profile = _pick_context_profile(device, tuning_profile, profile)
+        model_value = str(requested_model or "").strip()
+        if model_value and model_value.lower() != "auto":
+            return model_value
+        return CONTEXT_PROFILE_MODELS[selected_profile]
+
+    def _set_context_config(payload: Dict[str, object]) -> None:
+        nonlocal context_trigger, context_cooldown, context_profile
+        valid_triggers = {"interval", "person_appears", "person_present", "manual"}
+        if "enabled" in payload or "context_enabled" in payload:
+            context_detector.set_enabled(bool(payload.get("enabled", payload.get("context_enabled"))))
+        context_profile = str(payload.get("profile", payload.get("context_profile", context_profile)) or context_profile).strip().lower()
+        if context_profile not in ("auto", "low", "mid", "high", "max"):
+            raise ValueError(f"invalid context profile: {context_profile}")
+        trigger = str(payload.get("trigger", payload.get("context_trigger", context_trigger)) or context_trigger).strip().lower()
+        if trigger not in valid_triggers:
+            raise ValueError(f"invalid context trigger: {trigger}")
+        context_trigger = trigger
+        if "model" in payload or "context_model" in payload:
+            model = str(payload.get("model", payload.get("context_model")) or "").strip()
+        else:
+            model = context_detector.model
+        model = _context_model_for_profile(context_profile, model)
+        interval = float(payload.get("interval", payload.get("context_interval", args.context_interval)) or args.context_interval)
+        cooldown = float(payload.get("cooldown", payload.get("context_cooldown", context_cooldown)) or context_cooldown)
+        context_cooldown = max(1.0, cooldown)
+        effective_interval = max(1.0, interval if context_trigger == "interval" else context_cooldown)
+        context_detector.configure(
+            model=model,
+            interval=effective_interval,
+            trigger=context_trigger,
+            cooldown=context_cooldown,
+        )
+        context_detector.refresh_models_async(force=True)
+        _update_state(
+            context=context_detector.latest(),
+            context_enabled=context_detector.enabled(),
+            context_model=context_detector.model,
+            context_profile=context_profile,
+            context_models=context_detector.models(),
+            context_models_error=context_detector.models_error(),
+            context_busy=context_detector.busy(),
+            context_trigger=context_trigger,
+            context_cooldown=context_cooldown,
+        )
+        _log.info("Context config -> enabled=%s trigger=%s model=%s cooldown=%.1fs",
+                  context_detector.enabled(), context_trigger, context_detector.model, context_cooldown)
+
+
+    def _maybe_submit_context(frame_bgr, objects: List[Dict[str, object]], person_present: bool) -> None:
+        nonlocal last_context_trigger_ts, last_context_person_present, force_context_next_frame
+        now = time.time()
+        should_submit = False
+        force = False
+        if force_context_next_frame:
+            should_submit = True
+            force = True
+            force_context_next_frame = False
+        elif context_trigger == "interval":
+            should_submit = bool(float(args.context_min_yolo_fps) <= 0 or fps_smooth <= 0 or fps_smooth >= float(args.context_min_yolo_fps))
+        elif context_trigger == "person_present":
+            should_submit = bool(
+                person_present
+                and (now - last_context_trigger_ts) >= context_cooldown
+                and (float(args.context_min_yolo_fps) <= 0 or fps_smooth <= 0 or fps_smooth >= float(args.context_min_yolo_fps))
+            )
+        elif context_trigger == "person_appears":
+            should_submit = bool(
+                person_present
+                and not last_context_person_present
+                and (now - last_context_trigger_ts) >= context_cooldown
+                and (float(args.context_min_yolo_fps) <= 0 or fps_smooth <= 0 or fps_smooth >= float(args.context_min_yolo_fps))
+            )
+
+        if should_submit and not context_detector.busy() and context_detector.submit(frame_bgr, objects, force=force, bypass_enabled=force):
+            last_context_trigger_ts = now
+        last_context_person_present = bool(person_present)
+
 
     def processing_loop():
         nonlocal frame_count, last_fps_time, fps_smooth
         nonlocal cycle_idx, active_preset_name, det_model, pose_model, names
         nonlocal det_weights, pose_weights, pose_enabled
         nonlocal overlay_enabled, inference_enabled, _saved_pose_enabled, _saved_overlay_enabled
+        nonlocal force_context_next_frame
 
         try:
             while not stop_event.is_set():
@@ -1970,11 +2395,13 @@ def main():
 
                     seq = 0
                     cmd = ""
+                    payload_dict: Dict[str, object] = {}
                     try:
                         if isinstance(item, (tuple, list)) and len(item) >= 2:
                             seq = int(item[0] or 0)
                             cmd = _normalize_web_cmd_name(item[1])
                         elif isinstance(item, dict):
+                            payload_dict = dict(item)
                             cmd, seq = _extract_web_cmd_and_seq(item)
                         else:
                             cmd = _normalize_web_cmd_name(item)
@@ -2070,6 +2497,38 @@ def main():
                         _set_inference(False)
                         applied = True
 
+                    elif cmd in ("toggle_context", "context", "c"):
+                        _set_context(not context_detector.enabled())
+                        applied = True
+
+                    elif cmd == "context_on":
+                        _set_context(True)
+                        applied = True
+
+                    elif cmd == "context_off":
+                        _set_context(False)
+                        applied = True
+
+                    elif cmd in ("context_config", "set_context", "context_settings"):
+                        try:
+                            _set_context_config(payload_dict)
+                            applied = True
+                        except Exception as e:
+                            _update_state(
+                                last_error=f"Context config failed ({type(e).__name__}): {e}",
+                                last_error_ts=time.time(),
+                                worker_alive=True,
+                            )
+                            _log.error("Context config failed: %s", e)
+
+                    elif cmd == "context_analyze":
+                        force_context_next_frame = True
+                        applied = True
+
+                    elif cmd == "context_emergency_stop":
+                        _emergency_stop_context()
+                        applied = True
+
                     if applied:
                         _update_state(
                             cmd_seq_applied=int(seq or 0),
@@ -2077,6 +2536,13 @@ def main():
                             overlay_enabled=overlay_enabled,
                             inference_enabled=inference_enabled,
                             pose_enabled=pose_enabled,
+                            context_enabled=context_detector.enabled(),
+                            context=context_detector.latest(),
+                            context_busy=context_detector.busy(),
+                            context_models=context_detector.models(),
+                            context_models_error=context_detector.models_error(),
+                            context_trigger=context_trigger,
+                            context_cooldown=context_cooldown,
                             busy=False,
                             busy_text=None,
                             last_error=None,
@@ -2090,6 +2556,7 @@ def main():
 
                 loop_start = time.time()
                 ret, frame = cap.read()
+                capture_done = time.time()
                 if not ret or frame is None:
                     _update_state(
                         busy=False,
@@ -2112,11 +2579,18 @@ def main():
 
                 # Stream-only mode: no model inference, no overlay (raw frames only)
                 if not inference_enabled:
+                    _maybe_submit_context(frame, [], False)
                     now = time.time()
                     dt = now - last_fps_time
                     last_fps_time = now
                     inst_fps = 1.0 / max(dt, 1e-6)
                     fps_smooth = 0.9 * fps_smooth + 0.1 * inst_fps if fps_smooth > 0 else inst_fps
+                    perf_stats.update({
+                        "capture_ms": (capture_done - loop_start) * 1000.0,
+                        "detect_ms": 0.0,
+                        "pose_ms": 0.0,
+                        "total_ms": (now - loop_start) * 1000.0,
+                    })
 
                     _publish_runtime_state()
 
@@ -2155,16 +2629,31 @@ def main():
                     infer_frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
 
                 # --- Detection + Tracking ---
-                results = det_model.track(
-                    infer_frame,
-                    imgsz=args.imgsz,
-                    conf=args.conf,
-                    iou=args.iou,
-                    device=device,
-                    persist=True,
-                    tracker=args.tracker,
-                    verbose=False,
-                )
+                if args.tracker_mode == "ultralytics":
+                    detect_start = time.time()
+                    results = det_model.track(
+                        infer_frame,
+                        imgsz=args.imgsz,
+                        conf=args.conf,
+                        iou=args.iou,
+                        device=device,
+                        half=use_half,
+                        persist=True,
+                        tracker=args.tracker,
+                        verbose=False,
+                    )
+                else:
+                    detect_start = time.time()
+                    results = det_model.predict(
+                        infer_frame,
+                        imgsz=args.imgsz,
+                        conf=args.conf,
+                        iou=args.iou,
+                        device=device,
+                        half=use_half,
+                        verbose=False,
+                    )
+                detect_done = time.time()
                 r = results[0]
 
                 boxes = []
@@ -2178,6 +2667,8 @@ def main():
                     cf = r.boxes.conf.cpu().numpy()
                     if r.boxes.id is not None:
                         tid = r.boxes.id.cpu().numpy().astype(int)
+                    elif args.tracker_mode == "simple":
+                        tid = _assign_simple_track_ids(xyxy, cl)
                     else:
                         tid = np.arange(len(xyxy), dtype=int)
 
@@ -2189,23 +2680,44 @@ def main():
                     confs = cf
                     ids = tid
 
+                def class_label(cls_id: int) -> str:
+                    if isinstance(names, dict):
+                        return str(names.get(int(cls_id), str(cls_id)))
+                    return str(names[int(cls_id)] if int(cls_id) < len(names) else str(cls_id))
+
+                has_person_detection = any(class_label(int(cls_id)) == "person" for cls_id in clss)
+
                 # --- Pose pass (persons) ---
                 pose_boxes = []
                 pose_kpts_xy = []
                 pose_kpts_conf = []
 
                 run_pose_now = bool(
-                    pose_enabled and pose_model is not None and (frame_count % max(1, args.pose_every) == 0)
+                    pose_enabled
+                    and pose_model is not None
+                    and has_person_detection
+                    and (frame_count % max(1, args.pose_every) == 0)
                 )
+                if (
+                    run_pose_now
+                    and bool(int(getattr(args, "adaptive_pose", 1)))
+                    and float(getattr(args, "pose_min_yolo_fps", 0.0) or 0.0) > 0
+                    and fps_smooth > 0
+                    and fps_smooth < float(args.pose_min_yolo_fps)
+                ):
+                    run_pose_now = False
 
                 if run_pose_now:
+                    pose_start = time.time()
                     pres = pose_model.predict(
                         infer_frame,
                         imgsz=args.imgsz,
                         conf=max(args.conf, 0.15),
                         device=device,
+                        half=use_half,
                         verbose=False,
                     )[0]
+                    pose_done = time.time()
 
                     if pres.boxes is not None and len(pres.boxes) > 0 and pres.keypoints is not None:
                         pose_boxes = pres.boxes.xyxy.cpu().numpy()
@@ -2218,19 +2730,19 @@ def main():
 
                         pose_kpts_xy = kpts
                         pose_kpts_conf = kconfs
+                else:
+                    pose_start = detect_done
+                    pose_done = detect_done
 
                 draw_pose = bool(pose_enabled and (not args.no_draw_pose))
+                context_objects: List[Dict[str, object]] = []
 
                 # --- Draw & infer actions ---
                 for box, cls_id, conf, tid in zip(boxes, clss, confs, ids):
                     x1, y1, x2, y2 = box
                     x1i, y1i, x2i, y2i = map(int, [x1, y1, x2, y2])
 
-                    # model.names is commonly a dict, but guard anyway
-                    if isinstance(names, dict):
-                        label = names.get(int(cls_id), str(cls_id))
-                    else:
-                        label = names[int(cls_id)] if int(cls_id) < len(names) else str(cls_id)
+                    label = class_label(int(cls_id))
                     is_person = (label == "person")
 
                     cx = int(round(0.5 * (x1 + x2)))
@@ -2307,6 +2819,12 @@ def main():
                             action = "walking"
                         else:
                             action = "sitting" if sitting else "standing"
+                        context_objects.append({
+                            "label": label,
+                            "track_id": int(tid),
+                            "action": action,
+                            "conf": float(conf),
+                        })
 
                         # Draw pose skeleton if we have a recent cache for this track
                         if overlay_enabled and draw_pose and int(tid) in pose_cache:
@@ -2324,6 +2842,11 @@ def main():
                             text = f"person#{int(tid)} {action} C({cx},{cy}) {conf:.2f}"
                     else:
                         text = f"{label} C({cx},{cy}) {conf:.2f}"
+                        context_objects.append({
+                            "label": label,
+                            "track_id": int(tid),
+                            "conf": float(conf),
+                        })
 
                     if overlay_enabled:
                         cv2.rectangle(frame, (x1i, y1i), (x2i, y2i), (0, 255, 0), 2)
@@ -2336,8 +2859,22 @@ def main():
                 last_fps_time = now
                 inst_fps = 1.0 / max(dt, 1e-6)
                 fps_smooth = 0.9 * fps_smooth + 0.1 * inst_fps if fps_smooth > 0 else inst_fps
+                perf_stats.update({
+                    "capture_ms": (capture_done - loop_start) * 1000.0,
+                    "detect_ms": (detect_done - detect_start) * 1000.0,
+                    "pose_ms": (pose_done - pose_start) * 1000.0,
+                    "total_ms": (now - loop_start) * 1000.0,
+                })
                 if overlay_enabled:
                     draw_label(frame, 10, 25, f"FPS ~ {fps_smooth:.1f} (cap {args.max_fps})")
+                    if bool(args.context_overlay):
+                        ctx = context_detector.latest()
+                        ctx_summary = str(ctx.get("summary") or "").strip()
+                        ctx_error = str(ctx.get("error") or "").strip()
+                        if ctx_summary:
+                            draw_label(frame, 10, 85, f"Context: {ctx_summary[:110]}")
+                        elif context_detector.enabled() and ctx_error:
+                            draw_label(frame, 10, 85, f"Context: {ctx_error[:110]}")
 
                 # Show active config
                 if overlay_enabled:
@@ -2351,9 +2888,11 @@ def main():
                         frame,
                         10,
                         65,
-                        "Keys: q quit | m next model | n prev model | p pose | o overlay | i model",
+                        "Keys: q quit | m next model | n prev model | p pose | o overlay | i model | c context",
                     )
 
+                context_person_present = any(str(obj.get("label", "")) == "person" for obj in context_objects)
+                _maybe_submit_context(frame, context_objects, context_person_present)
                 _publish_runtime_state()
 
                 if hub is not None:
@@ -2370,6 +2909,8 @@ def main():
                         stale = [k for k in d if k not in active_ids]
                         for k in stale:
                             del d[k]
+                    for k in [track_id for track_id in simple_track_boxes if track_id not in active_ids]:
+                        simple_track_boxes.pop(k, None)
 
                 elapsed = time.time() - loop_start
                 if frame_interval > 0 and elapsed < frame_interval:
@@ -2390,6 +2931,8 @@ def main():
                             _set_overlay(not overlay_enabled)
                     if k == ord("i"):
                         _set_inference(not inference_enabled)
+                    if k == ord("c"):
+                        _set_context(not context_detector.enabled())
         except (Exception, SystemExit) as e:
             _update_state(
                 busy=False,
@@ -2592,6 +3135,11 @@ def main():
 
     # mark shutdown complete for watchdog
     shutdown_done.set()
+
+    try:
+        context_detector.stop()
+    except Exception:
+        pass
 
     cap.release()
     if window_enabled:

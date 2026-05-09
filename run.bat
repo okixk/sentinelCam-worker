@@ -23,7 +23,9 @@ set "PIP_CACHE_SUBDIR=pip-cache"
 
 set "DEFAULT_SOURCE_WINDOWS=0"
 set "DEFAULT_DEVICE=auto"
-set "DEFAULT_USE_POSE=1"
+set "DEFAULT_USE_POSE=0"
+set "DEFAULT_ADAPTIVE_POSE=1"
+set "DEFAULT_POSE_MIN_YOLO_FPS=12.0"
 set "DEFAULT_MAX_FPS=120"
 set "DEFAULT_WEB_HOST=127.0.0.1"
 
@@ -62,6 +64,11 @@ set "HAS_HOST=0"
 set "HAS_MAXFPS=0"
 set "HAS_USE_POSE=0"
 set "HAS_NO_POSE=0"
+set "HAS_CONTEXT=0"
+set "EXPECT_CONTEXT_MODEL_VALUE=0"
+set "EXPECT_CONTEXT_PROFILE_VALUE=0"
+set "CONTEXT_MODEL_ARG="
+set "CONTEXT_PROFILE_ARG="
 set "EXPECT_SOURCE_VALUE=0"
 set "FINAL_SOURCE="
 set "SELECTED_HOST=%DEFAULT_WEB_HOST%"
@@ -72,6 +79,14 @@ if "%~1"=="" goto after_parse
 if "%EXPECT_SOURCE_VALUE%"=="1" (
   set "FINAL_SOURCE=%~1"
   set "EXPECT_SOURCE_VALUE=0"
+)
+if "%EXPECT_CONTEXT_MODEL_VALUE%"=="1" (
+  set "CONTEXT_MODEL_ARG=%~1"
+  set "EXPECT_CONTEXT_MODEL_VALUE=0"
+)
+if "%EXPECT_CONTEXT_PROFILE_VALUE%"=="1" (
+  set "CONTEXT_PROFILE_ARG=%~1"
+  set "EXPECT_CONTEXT_PROFILE_VALUE=0"
 )
 
 if /i "%~1"=="-s"             set "SILENT=1" & shift & goto parse
@@ -100,6 +115,11 @@ if /i "%ARG:~0,10%"=="--max-fps=" set "HAS_MAXFPS=1"
 
 if /i "%~1"=="--use-pose" set "HAS_USE_POSE=1"
 if /i "%~1"=="--no-pose"  set "HAS_NO_POSE=1"
+if /i "%~1"=="--context"  set "HAS_CONTEXT=1"
+if /i "%~1"=="--context-model" set "EXPECT_CONTEXT_MODEL_VALUE=1"
+if /i "%ARG:~0,16%"=="--context-model=" set "CONTEXT_MODEL_ARG=%ARG:~16%"
+if /i "%~1"=="--context-profile" set "EXPECT_CONTEXT_PROFILE_VALUE=1"
+if /i "%ARG:~0,18%"=="--context-profile=" set "CONTEXT_PROFILE_ARG=%ARG:~18%"
 
 set "FWD_ARGS=%FWD_ARGS% %~1"
 shift
@@ -139,12 +159,20 @@ echo   WEB_AUTH_TOKEN=long-random-secret
 echo   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 echo Stream quality defaults in webcam.properties:
 echo   DEFAULT_STREAM_MODE=auto
+echo   DEFAULT_WEBRTC_CODEC=auto
 echo   DEFAULT_WEBRTC_BITRATE_KBPS=-1
 echo   DEFAULT_WEBRTC_FPS=0
 echo   DEFAULT_STREAM_QUALITY=auto
 echo   DEFAULT_CPU_THREADS=0
+echo   DEFAULT_TRACKER_MODE=simple
+echo   DEFAULT_YOLO_HALF=1
 echo   DEFAULT_CAMERA_FPS=0
 echo   DEFAULT_JPEG_QUALITY=88
+echo   DEFAULT_CONTEXT_ENABLED=0
+echo   DEFAULT_CONTEXT_SETUP_OLLAMA=1
+echo   DEFAULT_CONTEXT_PROFILE=auto
+echo   DEFAULT_CONTEXT_MODEL=auto
+echo   DEFAULT_CONTEXT_INTERVAL=30.0
 echo.
 echo Examples:
 echo   run.bat
@@ -157,6 +185,7 @@ echo   run.bat --webrtc-bitrate 8000
 echo   run.bat --webrtc-fps 60
 echo   run.bat --camera-fps 60
 echo   run.bat --stream-quality ultra
+echo   run.bat --context --context-profile mid --context-model auto
 exit /b 0
 
 :after_parse
@@ -216,6 +245,20 @@ if "%DO_INSTALL%"=="1" (
 if not exist "webcam.py" (
   echo ERROR: webcam.py not found in %SCRIPT_DIR%
   exit /b 1
+)
+
+if "%DEFAULT_CONTEXT_SETUP_OLLAMA%"=="" set "DEFAULT_CONTEXT_SETUP_OLLAMA=1"
+if "%DEFAULT_CONTEXT_PROFILE%"=="" set "DEFAULT_CONTEXT_PROFILE=auto"
+if "%DEFAULT_CONTEXT_MODEL%"=="" set "DEFAULT_CONTEXT_MODEL=auto"
+set "CONTEXT_ENABLED_EFFECTIVE=0"
+if "%DEFAULT_CONTEXT_ENABLED%"=="1" set "CONTEXT_ENABLED_EFFECTIVE=1"
+if "%HAS_CONTEXT%"=="1" set "CONTEXT_ENABLED_EFFECTIVE=1"
+if "%CONTEXT_PROFILE_ARG%"=="" set "CONTEXT_PROFILE_ARG=%DEFAULT_CONTEXT_PROFILE%"
+if "%CONTEXT_MODEL_ARG%"=="" set "CONTEXT_MODEL_ARG=%DEFAULT_CONTEXT_MODEL%"
+if "%DO_INSTALL%"=="1" if "%DEFAULT_CONTEXT_SETUP_OLLAMA%"=="1" if "%CONTEXT_ENABLED_EFFECTIVE%"=="1" (
+  echo Context detection is enabled; ensuring native Ollama and model are available.
+  "%PYTHON_EXE%" setup_ollama.py --install --pull --profile "%CONTEXT_PROFILE_ARG%" --model "%CONTEXT_MODEL_ARG%"
+  if errorlevel 1 exit /b 1
 )
 
 REM Configure Ultralytics runtime dirs

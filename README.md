@@ -65,6 +65,11 @@ Optional for web integration:
 - `sentinelCam-web`
 - shared worker token
 
+Optional for context detection:
+
+- Ollama running locally
+- a vision model such as `gemma3:4b`, `llava`, `moondream`, or `llama3.2-vision`
+
 ## 2. Quick Smoke Test Without A Camera
 
 Use this first if you only want to confirm that the worker starts and responds.
@@ -82,6 +87,50 @@ cd C:\path\to\sentinelCam-worker
 cd ~/sentinelCam-worker
 bash ./run.sh --source synthetic --host 0.0.0.0 --no-window --stream auto
 ```
+
+## Context Detection With Ollama
+
+The worker can ask a local Ollama vision model for a short "what is currently happening" sentence. This is opt-in. It runs in a background thread after you enable it, publishes the latest result in `GET /api/state` under `context`, and can draw the sentence on the stream overlay.
+
+Context profiles choose the default Ollama model when `--context-model auto` is used:
+
+- `low` - CPU-only machines, pulls `moondream`.
+- `mid` - small GPU / Apple Silicon, pulls `gemma3:4b`.
+- `high` - stronger GPU, pulls `llama3.2-vision:11b`.
+- `max` - powerful GPU, pulls `llava:13b`.
+- `auto` - chooses one of the above from the local hardware.
+
+Enable context detection. The launcher installs Ollama natively for the current platform and pulls the selected model unless `DEFAULT_CONTEXT_SETUP_OLLAMA=0` is set:
+
+```bash
+bash ./run.sh --context --context-profile mid --context-model auto --source synthetic --no-window
+```
+
+Useful controls:
+
+```bash
+curl http://127.0.0.1:8080/api/state
+curl -X POST http://127.0.0.1:8080/api/cmd -H 'Content-Type: application/json' -d '{"cmd":"context_on"}'
+curl -X POST http://127.0.0.1:8080/api/cmd -H 'Content-Type: application/json' -d '{"cmd":"context_off"}'
+curl -X POST http://127.0.0.1:8080/api/cmd -H 'Content-Type: application/json' -d '{"cmd":"context_analyze"}'
+curl -X POST http://127.0.0.1:8080/api/cmd -H 'Content-Type: application/json' -d '{"cmd":"context_emergency_stop"}'
+curl -X POST http://127.0.0.1:8080/api/cmd -H 'Content-Type: application/json' -d '{"cmd":"context_config","enabled":true,"trigger":"person_appears","cooldown":30,"profile":"mid","model":"auto"}'
+```
+
+Trigger modes:
+
+- `interval` - analyze periodically.
+- `person_appears` - analyze when YOLO first sees a person after none were present.
+- `person_present` - analyze while a person is visible, limited by cooldown.
+- `manual` - only analyze after `context_analyze`.
+
+`context_analyze` is a one-shot request; it does not enable interval analysis. Use `context_emergency_stop` or the web UI's Stop AI button to disable AI context detection, clear queued frames, and ignore late in-flight results.
+On the web stream page, press `c` for one-shot context analysis, `i` for inference, `p` for pose, `o` for overlay, `m` / `n` for model cycling, and `q` to stop the worker.
+
+Tune with `--context-profile`, `--context-model`, `--context-trigger`, `--context-cooldown`, `--context-interval`, `--context-timeout`, `--context-image-width`, `--context-overlay`, `--context-host`, and `--context-prompt`.
+Automatic context runs are skipped while YOLO FPS is below `--context-min-yolo-fps` so Ollama does not steal the whole GPU budget from object detection. Pose is also adaptive by default: it only runs when a person is present and pauses while detection FPS is under `--pose-min-yolo-fps`.
+
+Ollama is expected to run natively on the host, not inside Docker. That matters on Windows and macOS because Docker Desktop runs Linux containers inside a VM and generally cannot use the host GPU for Ollama. Install Ollama for the host OS, pull a vision model such as `gemma3:4b`, and point the worker at it with `OLLAMA_HOST` or `--context-host`.
 
 ### macOS
 
@@ -327,10 +376,23 @@ Important runtime defaults:
 
 - `DEFAULT_STREAM_MODE=auto`
 - `DEFAULT_PERFORMANCE_PROFILE=auto`
+- `DEFAULT_WEBRTC_CODEC=auto`
 - `DEFAULT_WEBRTC_BITRATE_KBPS=-1`
 - `DEFAULT_WEBRTC_FPS=0`
 - `DEFAULT_STREAM_QUALITY=auto`
 - `DEFAULT_JPEG_QUALITY=88`
+- `DEFAULT_TRACKER_MODE=simple`
+- `DEFAULT_YOLO_HALF=1`
+- `DEFAULT_CONTEXT_MIN_YOLO_FPS=15.0`
+- `DEFAULT_ADAPTIVE_POSE=1`
+- `DEFAULT_POSE_MIN_YOLO_FPS=12.0`
+
+Performance notes:
+
+- The default `yolo` preset now scales by VRAM instead of forcing the heaviest GPU model on every CUDA card.
+- `DEFAULT_TRACKER_MODE=simple` avoids Ultralytics tracker overhead for live streams. Use `--tracker-mode ultralytics` if you specifically want ByteTrack.
+- `DEFAULT_PRESET_ACCEL=yolov8m` keeps the accelerated default responsive on 8-16 GB GPUs; select `yolov8l`, `yolov8x`, or `yolo26x` manually when you want quality over FPS.
+- `DEFAULT_YOLO_HALF=1` enables FP16 inference on CUDA.
 
 ## Docker
 
@@ -385,6 +447,7 @@ Notes:
 
 - Webcam passthrough in Docker is a Linux-only path.
 - On Windows and macOS Docker Desktop, use Docker only for `testsrc` / `synthetic`-style smoke tests or remote streams.
+- Keep Ollama native on the host. For Linux Docker workers using host networking, the default `OLLAMA_HOST=http://127.0.0.1:11434` reaches the host Ollama service; otherwise set `OLLAMA_HOST=http://host.docker.internal:11434` or the LAN URL of the Ollama host.
 
 ## Project Structure
 

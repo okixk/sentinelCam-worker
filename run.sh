@@ -26,12 +26,20 @@ Optional hardening in webcam.properties:
   WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 Stream quality defaults in webcam.properties:
   DEFAULT_STREAM_MODE=auto
+  DEFAULT_WEBRTC_CODEC=auto
   DEFAULT_WEBRTC_BITRATE_KBPS=-1
   DEFAULT_WEBRTC_FPS=0
   DEFAULT_STREAM_QUALITY=auto
   DEFAULT_CPU_THREADS=0
+  DEFAULT_TRACKER_MODE=simple
+  DEFAULT_YOLO_HALF=1
   DEFAULT_CAMERA_FPS=0
   DEFAULT_JPEG_QUALITY=88
+  DEFAULT_CONTEXT_ENABLED=0
+  DEFAULT_CONTEXT_SETUP_OLLAMA=1
+  DEFAULT_CONTEXT_PROFILE=auto
+  DEFAULT_CONTEXT_MODEL=auto
+  DEFAULT_CONTEXT_INTERVAL=30.0
 
 Examples:
   ./run.sh
@@ -44,6 +52,7 @@ Examples:
   ./run.sh --webrtc-fps 60
   ./run.sh --camera-fps 60
   ./run.sh --stream-quality ultra
+  ./run.sh --context --context-profile mid --context-model auto
 HELP
   exit 0
 fi
@@ -96,6 +105,34 @@ has_opt() {
     [[ "$a" == "$name" || "$a" == "$name="* ]] && return 0
   done
   return 1
+}
+
+forward_has_context() {
+  if [[ "${DEFAULT_CONTEXT_ENABLED:-0}" == "1" ]]; then
+    return 0
+  fi
+  has_arg "--context" "${FORWARD[@]}"
+}
+
+forward_opt_value() {
+  local name="$1"
+  local default_value="$2"
+  local i
+  for ((i=0; i<${#FORWARD[@]}; i++)); do
+    case "${FORWARD[$i]}" in
+      "$name")
+        if (( i + 1 < ${#FORWARD[@]} )); then
+          printf '%s' "${FORWARD[$((i + 1))]}"
+          return 0
+        fi
+        ;;
+      "$name="*)
+        printf '%s' "${FORWARD[$i]#*=}"
+        return 0
+        ;;
+    esac
+  done
+  printf '%s' "$default_value"
 }
 
 default_host_choice() {
@@ -299,6 +336,13 @@ fi
 
 [[ -f "webcam.py" ]] || die "webcam.py not found in: $SCRIPT_DIR"
 
+if [[ "$DO_INSTALL" == "1" && "${DEFAULT_CONTEXT_SETUP_OLLAMA:-1}" == "1" ]] && forward_has_context; then
+  context_profile="$(forward_opt_value "--context-profile" "${DEFAULT_CONTEXT_PROFILE:-auto}")"
+  context_model="$(forward_opt_value "--context-model" "${DEFAULT_CONTEXT_MODEL:-auto}")"
+  log "Context detection is enabled; ensuring native Ollama and model are available."
+  python setup_ollama.py --install --pull --profile "$context_profile" --model "$context_model"
+fi
+
 export YOLO_CONFIG_DIR="$SCRIPT_DIR/$ULTRA_CFG_DIR"
 export SC_WEIGHTS_DIR="$SCRIPT_DIR/$WEIGHTS_DIR"
 export SC_RUNS_DIR="$SCRIPT_DIR/$RUNS_DIR"
@@ -333,7 +377,7 @@ if ! has_arg "--max-fps" "${FORWARD[@]}"; then
   FORWARD+=(--max-fps "${DEFAULT_MAX_FPS:-120}")
 fi
 
-if [[ "${DEFAULT_USE_POSE:-1}" == "1" ]] && ! has_opt "--no-pose" "${FORWARD[@]}" && ! has_opt "--use-pose" "${FORWARD[@]}"; then
+if [[ "${DEFAULT_USE_POSE:-0}" == "1" ]] && ! has_opt "--no-pose" "${FORWARD[@]}" && ! has_opt "--use-pose" "${FORWARD[@]}"; then
   FORWARD+=(--use-pose)
 fi
 
