@@ -3,16 +3,78 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
+import logging
 import queue
+import socket
 import threading
 import time
 import urllib.error
 import urllib.request
 from typing import Any, Callable, Dict, Iterable, Optional
+from urllib.parse import urlparse
 
 import cv2  # type: ignore
 import numpy as np  # type: ignore
+
+
+_log = logging.getLogger("sentinelCam.context")
+
+
+def _resolve_host_addresses(hostname: str) -> list[ipaddress._BaseAddress]:
+    try:
+        infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return []
+    addrs: list[ipaddress._BaseAddress] = []
+    for info in infos:
+        sockaddr = info[4]
+        if not sockaddr:
+            continue
+        try:
+            addrs.append(ipaddress.ip_address(sockaddr[0]))
+        except ValueError:
+            continue
+    return addrs
+
+
+def _validate_ollama_host(host: str) -> str:
+    """Reject hosts that point to cloud-metadata or otherwise dangerous targets.
+
+    We still allow private/loopback ranges by default because Ollama almost
+    always runs locally; we only reject categories that have no legitimate
+    Ollama deployment story (link-local + reserved/multicast/cloud-metadata).
+    """
+    candidate = (host or "").strip()
+    if not candidate:
+        raise ValueError("Ollama host must not be empty")
+    parsed = urlparse(candidate if "://" in candidate else f"http://{candidate}")
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Ollama host scheme {scheme!r} is not supported (use http/https)")
+    hostname = (parsed.hostname or "").strip()
+    if not hostname:
+        raise ValueError("Ollama host must include a hostname")
+
+    # Reject cloud-metadata IPs explicitly — these are the well-known
+    # SSRF-pivot targets that should never be a legitimate Ollama endpoint.
+    blocked_literal = {"169.254.169.254", "fd00:ec2::254"}
+    if hostname in blocked_literal:
+        raise ValueError(f"Refusing to connect to cloud-metadata address {hostname!r}")
+
+    addrs: list[ipaddress._BaseAddress] = []
+    try:
+        addrs = [ipaddress.ip_address(hostname)]
+    except ValueError:
+        addrs = _resolve_host_addresses(hostname)
+
+    for addr in addrs:
+        if str(addr) in blocked_literal:
+            raise ValueError(f"Refusing to connect to cloud-metadata address {addr!s}")
+        if addr.is_link_local or addr.is_multicast or addr.is_reserved or addr.is_unspecified:
+            raise ValueError(f"Refusing to connect to dangerous address {addr!s}")
+    return parsed.geturl().rstrip("/")
 
 
 DEFAULT_CONTEXT_PROMPT = (
@@ -39,7 +101,12 @@ class OllamaContextDetector:
         state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         self.model = (model or "moondream").strip()
-        self.host = (host or "http://127.0.0.1:11434").rstrip("/")
+        raw_host = (host or "http://127.0.0.1:11434").rstrip("/")
+        try:
+            self.host = _validate_ollama_host(raw_host)
+        except ValueError as exc:
+            _log.warning("Refusing Ollama host %r: %s — falling back to 127.0.0.1:11434", raw_host, exc)
+            self.host = "http://127.0.0.1:11434"
         self.prompt = prompt or DEFAULT_CONTEXT_PROMPT
         self.interval = max(1.0, float(interval))
         self.timeout = max(1.0, float(timeout))

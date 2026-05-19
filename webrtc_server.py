@@ -29,6 +29,7 @@ from security import (
     SecurityConfig,
     check_bearer_token,
     is_loopback_bind,
+    is_loopback_peer,
     is_origin_allowed,
     parse_origin,
 )
@@ -859,11 +860,15 @@ async def _run_webrtc_server(
         return response
 
     async def handle_health(request: web.Request) -> web.Response:
-        error = None
-        if not security.allow_unauthenticated_health:
+        # Unauthenticated health probes are only honored when the request
+        # actually originated on the host's loopback interface — this keeps
+        # the Docker / Compose healthcheck working without leaking liveness
+        # to the wider network.
+        peer_ip = request.remote or ""
+        if not (security.allow_unauthenticated_health and is_loopback_peer(peer_ip)):
             error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
-        if error is not None:
-            return error
+            if error is not None:
+                return error
         return _json_response(request, security, loopback_bind, {"ok": True})
 
     async def handle_state(request: web.Request) -> web.Response:
@@ -882,10 +887,32 @@ async def _run_webrtc_server(
         state["stream_backend"] = "webrtc"
         return _json_response(request, security, loopback_bind, state)
 
+    _CMD_RATE_LIMIT_PER_IP = 30
+    _CMD_RATE_WINDOW = 30.0
+    _cmd_timestamps: Dict[str, List[float]] = {}
+
+    def _cmd_rate_allows(peer_ip: str) -> bool:
+        now = asyncio.get_running_loop().time()
+        entries = [t for t in _cmd_timestamps.get(peer_ip, []) if now - t < _CMD_RATE_WINDOW]
+        if len(entries) >= _CMD_RATE_LIMIT_PER_IP:
+            _cmd_timestamps[peer_ip] = entries
+            return False
+        entries.append(now)
+        _cmd_timestamps[peer_ip] = entries
+        if len(_cmd_timestamps) > 256:
+            stale = sorted(_cmd_timestamps.items(), key=lambda kv: kv[1][-1] if kv[1] else 0.0)
+            for stale_ip, _ in stale[: len(_cmd_timestamps) - 200]:
+                _cmd_timestamps.pop(stale_ip, None)
+        return True
+
     async def handle_cmd(request: web.Request) -> web.Response:
         error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
         if error is not None:
             return error
+
+        peer_ip = request.remote or "unknown"
+        if not _cmd_rate_allows(peer_ip):
+            return _json_response(request, security, loopback_bind, {"ok": False, "error": "rate limit exceeded"}, status=429)
 
         if request.content_length is not None and request.content_length > int(security.max_cmd_bytes):
             return _json_response(request, security, loopback_bind, {"ok": False, "error": "request body too large"}, status=413)
@@ -911,7 +938,7 @@ async def _run_webrtc_server(
             try:
                 control.command(payload)
             except Exception:
-                pass
+                _logger.warning("control.command raised; dropping request", exc_info=True)
 
         return _json_response(request, security, loopback_bind, {"ok": True})
 
@@ -920,6 +947,16 @@ async def _run_webrtc_server(
     _OFFER_RATE_LIMIT_PER_IP = 5
     _OFFER_RATE_WINDOW = 30.0
     _MAX_ACTIVE_PCS = 20
+
+    # Track fire-and-forget asyncio tasks so they cannot be garbage-collected
+    # mid-flight and so the shutdown path can drain them.
+    _background_tasks: Set[asyncio.Task[Any]] = set()
+
+    def _spawn_background(coro: Any) -> asyncio.Task[Any]:
+        task = asyncio.create_task(coro)
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        return task
 
     async def handle_offer(request: web.Request) -> web.Response:
         error = _check_origin_and_auth(request, security, loopback_bind, require_auth=True)
@@ -976,8 +1013,9 @@ async def _run_webrtc_server(
             answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
             if int(target_bitrate_kbps) > 0:
-                asyncio.create_task(_apply_target_bitrate(transceiver.sender, int(target_bitrate_kbps) * 1000))
+                _spawn_background(_apply_target_bitrate(transceiver.sender, int(target_bitrate_kbps) * 1000))
         except Exception as exc:
+            _logger.warning("WebRTC negotiation failed: %s", exc, exc_info=True)
             pcs.discard(pc)
             pc_creation_times.pop(pc, None)
             try:
@@ -988,7 +1026,7 @@ async def _run_webrtc_server(
                 request,
                 security,
                 loopback_bind,
-                {"ok": False, "error": f"WebRTC negotiation failed: {type(exc).__name__}: {exc}"},
+                {"ok": False, "error": "WebRTC negotiation failed"},
                 status=400,
             )
 
@@ -1167,6 +1205,19 @@ async def _run_webrtc_server(
         cleanup_task.cancel()
         if shared_encoder is not None:
             shared_encoder.stop()
+        # Drain background tasks (bitrate-apply etc.) so they cannot run after
+        # the loop is closed.
+        for task in list(_background_tasks):
+            task.cancel()
+        if _background_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*list(_background_tasks), return_exceptions=True),
+                    timeout=2.0,
+                )
+            except (asyncio.TimeoutError, Exception):
+                pass
+        _background_tasks.clear()
         coros = []
         for pc in list(pcs):
             try:

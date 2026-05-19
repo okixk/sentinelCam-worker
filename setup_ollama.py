@@ -8,6 +8,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 from typing import Optional
 
 
@@ -18,10 +20,30 @@ PROFILE_MODELS = {
     "max": "llava:13b",
 }
 
+# Pinned upstream install endpoints — never read from env or user input. Piping
+# remote scripts straight into a shell is an antipattern; we still execute the
+# upstream installer, but we download it to a temp file first and then run it
+# without `shell=True` so there is no shell-expansion attack surface.
+_OLLAMA_INSTALL_URL_UNIX = "https://ollama.com/install.sh"
+_OLLAMA_INSTALL_URL_WIN = "https://ollama.com/install.ps1"
 
-def _run(cmd: list[str], *, shell: bool = False) -> None:
-    print("+ " + (" ".join(cmd) if not shell else cmd[0]), flush=True)
-    subprocess.run(cmd if not shell else cmd[0], shell=shell, check=True)
+
+def _run(cmd: list[str]) -> None:
+    print("+ " + " ".join(cmd), flush=True)
+    subprocess.run(cmd, shell=False, check=True)
+
+
+def _download_to_temp(url: str, suffix: str) -> Path:
+    if not url.startswith("https://"):
+        raise SystemExit(f"Refusing to download installer over non-HTTPS URL: {url}")
+    with tempfile.NamedTemporaryFile(prefix="sentinelcam-ollama-", suffix=suffix, delete=False) as tmp:
+        target = Path(tmp.name)
+    try:
+        _run(["curl", "-fsSL", "--proto", "=https", "--tlsv1.2", "-o", str(target), url])
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    return target
 
 
 def _capture(cmd: list[str]) -> str:
@@ -84,7 +106,12 @@ def install_ollama_if_missing() -> None:
     if system in ("linux", "darwin"):
         if not shutil.which("curl"):
             raise SystemExit("curl is required to install Ollama automatically.")
-        _run(["curl -fsSL https://ollama.com/install.sh | sh"], shell=True)
+        sh_path = shutil.which("sh") or "/bin/sh"
+        script = _download_to_temp(_OLLAMA_INSTALL_URL_UNIX, suffix=".sh")
+        try:
+            _run([sh_path, str(script)])
+        finally:
+            script.unlink(missing_ok=True)
         return
 
     if system == "windows":
@@ -92,7 +119,18 @@ def install_ollama_if_missing() -> None:
             _run(["winget", "install", "--id", "Ollama.Ollama", "-e", "--source", "winget", "--silent"])
             return
         if shutil.which("powershell"):
-            _run(["powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://ollama.com/install.ps1 | iex\""], shell=True)
+            script = _download_to_temp(_OLLAMA_INSTALL_URL_WIN, suffix=".ps1")
+            try:
+                _run([
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script),
+                ])
+            finally:
+                script.unlink(missing_ok=True)
             return
         raise SystemExit("Install Ollama from https://ollama.com/download/windows, then rerun with context enabled.")
 

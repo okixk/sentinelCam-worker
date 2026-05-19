@@ -28,6 +28,11 @@ class SecurityConfig:
     auth_token: str = ""
     allowed_origins: Tuple[str, ...] = ()
     max_cmd_bytes: int = 8192
+    # When True, /health responds 200 without an Authorization header. The
+    # request handlers additionally restrict this to peers on the loopback
+    # interface so the Docker healthcheck still works without burning a token,
+    # while exposing the worker over the network does not leak liveness or
+    # bypass auth.
     allow_unauthenticated_health: bool = True
 
 
@@ -68,14 +73,29 @@ def is_same_origin(
 
 
 def is_local_origin(origin: str, loopback_bind: bool) -> bool:
-    """Allow requests from loopback origins when the server is bound locally."""
+    """Allow requests from loopback origins when the server is bound locally.
+
+    Note: we deliberately do not accept ``Origin: null`` here. ``null`` is sent
+    by file:// pages and sandboxed iframes; treating it as same-origin would
+    let any locally opened HTML file talk to the worker.
+    """
     if not loopback_bind:
         return False
-    if origin == "null":
-        return True
     parsed = urlparse(origin)
     host = (parsed.hostname or "").strip().lower()
     return host in ("127.0.0.1", "localhost", "::1")
+
+
+def is_loopback_peer(peer_ip: str) -> bool:
+    """Return True when ``peer_ip`` is on the host's loopback interface."""
+    value = (peer_ip or "").strip()
+    if not value:
+        return False
+    try:
+        ip = ipaddress.ip_address(value.strip("[]"))
+    except ValueError:
+        return False
+    return bool(ip.is_loopback)
 
 
 def is_origin_allowed(

@@ -27,14 +27,19 @@ from urllib.parse import urlparse
 import cv2  # type: ignore
 import numpy as np  # type: ignore
 
+import logging
 from security import (
     ControlAPI,
     SecurityConfig,
     check_bearer_token,
     is_loopback_bind,
+    is_loopback_peer,
     is_origin_allowed,
     parse_origin,
 )
+
+
+_log = logging.getLogger("sentinelCam.mjpeg")
 
 
 class FrameHub:
@@ -141,6 +146,28 @@ def run_mjpeg_server(
     boundary = "frame"
     security = security or SecurityConfig()
     loopback_bind = is_loopback_bind(host)
+
+    _CMD_RATE_LIMIT_PER_IP = 30
+    _CMD_RATE_WINDOW = 30.0
+    _cmd_rate_lock = threading.Lock()
+    _cmd_timestamps: Dict[str, list] = {}
+
+    def _cmd_rate_allows(peer_ip: str) -> bool:
+        now = time.time()
+        with _cmd_rate_lock:
+            entries = [t for t in _cmd_timestamps.get(peer_ip, []) if now - t < _CMD_RATE_WINDOW]
+            if len(entries) >= _CMD_RATE_LIMIT_PER_IP:
+                _cmd_timestamps[peer_ip] = entries
+                return False
+            entries.append(now)
+            _cmd_timestamps[peer_ip] = entries
+            if len(_cmd_timestamps) > 256:
+                # Evict the oldest IPs so the dict cannot grow unbounded under
+                # network scans against this endpoint.
+                stale = sorted(_cmd_timestamps.items(), key=lambda kv: kv[1][-1] if kv[1] else 0.0)
+                for stale_ip, _ in stale[: len(_cmd_timestamps) - 200]:
+                    _cmd_timestamps.pop(stale_ip, None)
+            return True
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "sentinelCam-worker"
@@ -306,6 +333,11 @@ def run_mjpeg_server(
             if not self._require_auth():
                 return
 
+            peer_ip = (self.client_address[0] if self.client_address else "") or "unknown"
+            if not _cmd_rate_allows(peer_ip):
+                self._reject_json(429, {"ok": False, "error": "rate limit exceeded"})
+                return
+
             try:
                 length = int(self.headers.get("Content-Length", "0") or "0")
             except Exception:
@@ -333,7 +365,7 @@ def run_mjpeg_server(
                 try:
                     control.command(payload)
                 except Exception:
-                    pass
+                    _log.warning("control.command raised; dropping request", exc_info=True)
 
             self.send_response(200)
             self._add_cors_headers()
@@ -344,7 +376,8 @@ def run_mjpeg_server(
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
 
         def _handle_health(self) -> None:
-            if not security.allow_unauthenticated_health:
+            peer_ip = (self.client_address[0] if self.client_address else "") or ""
+            if not (security.allow_unauthenticated_health and is_loopback_peer(peer_ip)):
                 if not self._require_allowed_origin():
                     return
                 if not self._require_auth():
