@@ -1,0 +1,6 @@
+# Dependencies needed only for the web-streaming pipeline mode
+# (python -m web_pipeline.run). Install on top of requirements.txt:
+#   pip install -r requirements.txt -r requirements-pipeline.txt
+aiohttp>=3.9
+opencv-python-headless>=4.10
+numpy>=1.26
