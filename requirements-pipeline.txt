@@ -4,3 +4,12 @@
 aiohttp>=3.9
 opencv-python-headless>=4.10
 numpy>=1.26
+
+# Optional — only needed when WORKER_YOLO_MODEL is set so real inference
+# runs in pipeline mode. Without these installed the worker stays on the
+# stub overlay and no auto-recording detections will fire. Install with:
+#   pip install ultralytics torch torchvision
+# (or follow the device-specific instructions on the PyTorch site)
+# ultralytics>=8.3
+# torch>=2.2
+# torchvision>=0.17

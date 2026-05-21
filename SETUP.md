@@ -65,15 +65,37 @@ pip install -r requirements.txt -r requirements-pipeline.txt
 ### 2.3 Umgebungsvariablen setzen
 
 ```bash
+# Pflicht:
 export WEB_URL="https://sentinelcam.example.com"   # öffentlich oder VPN-URL
 export WEB_TOKEN="sc-wrk-1-deadbeef..."            # aus Schritt 2.1
 export WORKER_NAME="lab-h200"                       # informativ
 export JPEG_QUALITY=88                              # 70..95, Default 88
+
+# YOLO-Inferenz aktivieren (sonst läuft der Stub-Overlay, keine Detections):
+export WORKER_YOLO_MODEL="yolov8n.pt"               # oder Pfad zu eigenen Weights
 # Optional:
+export WORKER_YOLO_POSE_MODEL="yolov8n-pose.pt"     # Pose-Skelett (nur wenn 'person' im Bild)
+export WORKER_YOLO_CONF=0.35                        # Confidence-Schwelle (0.0..1.0)
+export WORKER_YOLO_IOU=0.5                          # NMS IoU-Schwelle
+export WORKER_YOLO_IMGSZ=640                        # Inferenz-Auflösung
+export WORKER_YOLO_DEVICE=""                        # leer = auto (cuda > mps > cpu)
+export WORKER_YOLO_HALF=1                           # FP16 auf NVIDIA-GPU
+
 export LOG_LEVEL=INFO                               # DEBUG für mehr Detail
 ```
 
 Tipp: in eine `.env` schreiben und `set -a; source .env; set +a` ausführen.
+
+`WORKER_YOLO_MODEL` schaltet vom Stub auf echte YOLO-Inferenz um. Dafür müssen
+`ultralytics` + `torch` installiert sein:
+
+```bash
+pip install ultralytics torch torchvision
+# CUDA-Build siehe https://pytorch.org/get-started/locally/
+```
+
+Wenn die Pakete fehlen aber `WORKER_YOLO_MODEL` gesetzt ist, beendet sich der
+Worker mit Exit-Code 2 und einer klaren Fehlermeldung — kein stiller Stub-Fallback.
 
 ### 2.4 Starten
 
@@ -92,17 +114,23 @@ Im Admin-UI sollte der Worker auf **online** flippen und Heartbeats
 schicken. Sobald die Pi-Kamera (`sentinelCam-web`-Ingest) Frames liefert,
 laufen sie durch den Worker und du siehst das Overlay im Browser.
 
-### 2.5 Echtes YOLO statt Stub-Overlay einbauen
+### 2.5 Auto-Recording: Detection-Frames
 
-Aktuell läuft `web_pipeline.client.stub_overlay` als Platzhalter und zeichnet
-nur ein „PROCESSING"-Banner. Wechsel auf echte Inferenz:
+Mit `WORKER_YOLO_MODEL` gesetzt schickt der Worker nach jedem Frame mit
+erkannten Klassen einen JSON-Text-Frame an den Web-Server:
 
-1. Eigene Funktion `def my_overlay(jpeg_bytes, capture_ms) -> bytes` schreiben
-   (siehe `webcam.py` für YOLO-Modell-Loading-Code).
-2. In `web_pipeline/run.py` `processor=stub_overlay` durch deine Funktion
-   ersetzen.
-3. Auf NVIDIA-GPU: NVENC-JPEG-Encode aktivieren, sonst frisst der CPU-Encode
-   spürbar Latenz.
+```json
+{"type": "detection", "camera_id": 1, "classes": ["person", "dog"], "ts": 1716315200000}
+```
+
+Throttle: maximal ein Detection-Frame pro Sekunde und Kamera — der Web-
+Server hat zusätzlich seinen eigenen per-Kamera-Cooldown (Default 30 s)
+über das Admin-Panel konfigurierbar.
+
+Das genügt, damit die im Web-Admin-Panel konfigurierten Auto-Recordings
+auslösen (Snapshot oder Clip, Eigentümer = erster Admin-User, sichtbar
+nur für Admins). Ohne echtes YOLO bleibt der Test-Fire-Knopf im Admin-
+Panel der einzige Weg, eine Auto-Aufnahme zu provozieren.
 
 ---
 
