@@ -2,6 +2,9 @@
 # Use with docker-compose.pipeline.yml. For CPU-only, build with:
 #   docker build -f Dockerfile.pipeline --build-arg TORCH_VARIANT=cpu -t sentinelcam-worker-pipeline .
 # For NVIDIA GPU (default), keep TORCH_VARIANT=cu124.
+#
+# Uses the distro's default Python (3.10 on Ubuntu 22.04). That is plenty for
+# the pipeline worker and avoids interpreter/pip mismatch problems.
 
 ARG BASE_IMAGE=nvidia/cuda:12.4.1-runtime-ubuntu22.04
 FROM ${BASE_IMAGE}
@@ -15,25 +18,29 @@ ENV DEBIAN_FRONTEND=noninteractive \
     MPLCONFIGDIR=/home/sentinelcam/.cache/matplotlib
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 python3-pip python3.11-venv python3.11-dev \
+        python3 python3-pip python3-venv \
         libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 \
         ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
-    && ln -sf /usr/bin/python3.11 /usr/local/bin/python3
+    && ln -sf /usr/bin/python3 /usr/local/bin/python
 
 WORKDIR /app
 
 COPY requirements.txt requirements-pipeline.txt ./
-RUN pip install --no-cache-dir -r requirements-pipeline.txt && \
+# All installs go through `python3 -m pip` so they land in the same site-packages
+# that the runtime's `python` (-> python3) will import from.
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir -r requirements-pipeline.txt && \
     if [ "$TORCH_VARIANT" = "cpu" ]; then \
-        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+        python3 -m pip install --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cpu \
             torch torchvision; \
     else \
-        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/${TORCH_VARIANT} \
+        python3 -m pip install --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/${TORCH_VARIANT} \
             torch torchvision; \
     fi && \
-    pip install --no-cache-dir ultralytics
+    python3 -m pip install --no-cache-dir ultralytics
 
 RUN groupadd -g 1000 sentinelcam && \
     useradd -u 1000 -g sentinelcam -m -s /usr/sbin/nologin sentinelcam && \
@@ -48,4 +55,4 @@ USER sentinelcam
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD pgrep -f "web_pipeline.run" >/dev/null || exit 1
 
-ENTRYPOINT ["python", "-m", "web_pipeline.run"]
+ENTRYPOINT ["python3", "-m", "web_pipeline.run"]
