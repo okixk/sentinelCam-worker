@@ -1,0 +1,12 @@
+# Override for CPU-only hosts. Use together with docker-compose.pipeline.yml:
+#   docker compose -f docker-compose.pipeline.yml -f docker-compose.pipeline.cpu.yml up -d --build
+services:
+  worker:
+    build:
+      args:
+        BASE_IMAGE: python:3.11-slim
+        TORCH_VARIANT: cpu
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []

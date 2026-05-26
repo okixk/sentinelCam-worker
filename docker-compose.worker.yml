@@ -1,16 +1,29 @@
-# Cross-platform standalone worker compose.
-# Use docker-compose.linux.yml on Linux if you want the worker container to stay
-# on host loopback (127.0.0.1) for a host-networked proxy such as the legacy
-# sentinelCam-web docker-compose.linux.yml override.
+# Standalone-Mode Compose: worker serves browsers directly via WebRTC/MJPEG.
+#
+# Quick start:
+#   cp .env.standalone.example .env
+#   # edit .env, set WORKER_TOKEN + WORKER_SOURCE
+#   docker compose -f docker-compose.worker.yml up -d --build
+#
+# Linux + USB webcam (adds device passthrough):
+#   docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
+#
+# Linux host-network variant (for legacy host-mode reverse proxies):
+#   docker compose -f docker-compose.worker.yml -f docker-compose.linux.yml up -d --build
 services:
   worker:
     build: .
+    image: sentinelcam-worker-standalone:latest
+    container_name: sentinelcam-worker-standalone
     ports:
       - "8080:8080"
       - "50000-51000:50000-51000/udp"
+    env_file:
+      - .env
     environment:
+      # Map .env names onto the names webcam.py expects inside the container.
       WEB_AUTH_TOKEN: ${WORKER_TOKEN:-}
-      WEB_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      WEB_ALLOWED_ORIGINS: ${WORKER_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     command:
       - "--host"
       - "0.0.0.0"
@@ -27,3 +40,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

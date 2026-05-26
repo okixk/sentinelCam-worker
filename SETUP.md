@@ -1,7 +1,9 @@
 # sentinelCam Worker — Setup-Anleitung
 
-Diese Anleitung erklärt die zwei Betriebsmodi des Workers, wie du sie
-startest und konfigurierst:
+Diese Anleitung erklärt die zwei Betriebsmodi des Workers und wie du sie
+**komplett über Docker** startest. Beide Modi sind so vorbereitet, dass
+nach dem Ausfüllen einer einzigen `.env`-Datei ein einzelner Befehl
+genügt.
 
 1. **Pipeline-Modus** (Branch `feature/web-streaming-pipeline`):
    Der Worker dialt outbound per WebSocket zu einer öffentlichen
@@ -10,8 +12,6 @@ startest und konfigurierst:
 2. **Standalone-Modus** (Default-Branch):
    Der Worker hat seine eigene Kamera (oder eine Test-Source) und bedient
    Browser direkt via WebRTC/MJPEG/HTTP.
-
-Beide Modi koexistieren im Repo. Wähle den, der zu deinem Setup passt.
 
 > Für die Architekturdetails siehe [README.md](README.md) und
 > [README_PIPELINE.md](README_PIPELINE.md).
@@ -22,189 +22,154 @@ Beide Modi koexistieren im Repo. Wähle den, der zu deinem Setup passt.
 
 | Setup | Modus | Warum |
 |---|---|---|
-| Pi nimmt auf, separater GPU-Host (z. B. H200) rechnet, `sentinelCam-web` ist öffentlich erreichbar | **Pipeline** | Web-Server ist das einzige öffentliche Tor; alle Komponenten dialen outbound. |
-| Worker hat eigene Kamera (USB/CSI) und soll Browsern direkt Stream liefern (LAN oder VPN) | **Standalone** | Kein zusätzlicher Web-Service nötig. |
-| Demo / Smoke-Test ohne echte Kamera | **Standalone** mit `--source synthetic` | Erzeugt Testbilder im Worker selbst. |
+| Pi nimmt auf, separater GPU-Host rechnet, `sentinelCam-web` ist öffentlich erreichbar | **Pipeline** | Web-Server ist das einzige öffentliche Tor; alle Komponenten dialen outbound. |
+| Worker hat eigene Kamera (USB/CSI) und soll Browsern direkt Stream liefern (LAN/VPN) | **Standalone** | Kein zusätzlicher Web-Service nötig. |
+| Demo / Smoke-Test ohne echte Kamera | **Standalone** mit `WORKER_SOURCE=testsrc` | Erzeugt Testbilder im Worker selbst. |
 
 ---
 
-## 1. Voraussetzungen
+## 1. Voraussetzungen (Host)
 
-- Python 3.11+ (3.12/3.13 getestet)
-- `pip` + `venv`
-- Linux, macOS oder Windows
-- Optional: NVIDIA-GPU mit CUDA für schnellere YOLO-Inferenz
-- Optional: Docker, wenn du nicht lokal installieren willst
+- Docker Engine ≥ 24 (`curl -fsSL https://get.docker.com | sudo sh`)
+- `docker compose` v2 (in aktuellen Docker-Versionen enthalten)
+- Optional, nur für Pipeline + GPU: NVIDIA-Treiber + **NVIDIA Container Toolkit**
 
-Bei echter Webcam:
+NVIDIA-Setup auf Ubuntu/Debian:
 
-- Linux: `v4l2`-Device, User in `video`-Gruppe
-- Windows/macOS: Lokal starten — Webcam-Passthrough in Docker ist auf
-  diesen Plattformen unzuverlässig.
+```bash
+distribution=$(. /etc/os-release; echo $ID$VERSION_ID)
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
+Wenn `nvidia-smi` im Test-Container erscheint, ist der Host bereit.
 
 ---
 
-## 2. Pipeline-Modus (mit sentinelCam-web)
+## 2. One-Shot: `./setup.sh`
 
-### 2.1 Worker-Token im Web-UI ausstellen
+Der einfachste Weg — interaktiv, idempotent, wählt automatisch das
+richtige Compose-Set und erkennt GPU/Kamera:
+
+```bash
+./setup.sh
+```
+
+Beim ersten Lauf legt das Skript `.env` aus dem passenden Template an
+(`.env.pipeline.example` oder `.env.standalone.example`) und stoppt.
+Bearbeite `.env` mit Token + URL, dann `./setup.sh` erneut ausführen — es
+baut das Image und startet den Container im Hintergrund.
+
+---
+
+## 3. Pipeline-Modus (manuell)
+
+### 3.1 Worker-Token im Web-UI ausstellen
 
 Auf `https://<dein-web-host>/admin` einloggen → **Workers → New worker**.
-Der angezeigte Token (`sc-wrk-<id>-<32_hex>`) wird **nur einmal** angezeigt.
-Sofort kopieren.
+Der Token (`sc-wrk-<id>-<32_hex>`) wird **nur einmal** angezeigt — sofort
+kopieren.
 
-### 2.2 Branch auschecken & Abhängigkeiten installieren
-
-```bash
-git checkout feature/web-streaming-pipeline
-
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt -r requirements-pipeline.txt
-```
-
-### 2.3 Umgebungsvariablen setzen
+### 3.2 `.env` vorbereiten
 
 ```bash
-# Pflicht:
-export WEB_URL="https://sentinelcam.example.com"   # öffentlich oder VPN-URL
-export WEB_TOKEN="sc-wrk-1-deadbeef..."            # aus Schritt 2.1
-export WORKER_NAME="lab-h200"                       # informativ
-export JPEG_QUALITY=88                              # 70..95, Default 88
-
-# YOLO-Inferenz aktivieren (sonst läuft der Stub-Overlay, keine Detections):
-export WORKER_YOLO_MODEL="yolov8n.pt"               # oder Pfad zu eigenen Weights
-# Optional:
-export WORKER_YOLO_POSE_MODEL="yolov8n-pose.pt"     # Pose-Skelett (nur wenn 'person' im Bild)
-export WORKER_YOLO_CONF=0.35                        # Confidence-Schwelle (0.0..1.0)
-export WORKER_YOLO_IOU=0.5                          # NMS IoU-Schwelle
-export WORKER_YOLO_IMGSZ=640                        # Inferenz-Auflösung
-export WORKER_YOLO_DEVICE=""                        # leer = auto (cuda > mps > cpu)
-export WORKER_YOLO_HALF=1                           # FP16 auf NVIDIA-GPU
-
-export LOG_LEVEL=INFO                               # DEBUG für mehr Detail
+cp .env.pipeline.example .env
+chmod 600 .env
+$EDITOR .env        # WEB_URL, WEB_TOKEN, WORKER_NAME setzen
 ```
 
-Tipp: in eine `.env` schreiben und `set -a; source .env; set +a` ausführen.
+Wichtige Variablen sind im Template kommentiert. Ohne `WORKER_YOLO_MODEL`
+läuft nur der Stub-Overlay (keine Auto-Recording-Detections).
 
-`WORKER_YOLO_MODEL` schaltet vom Stub auf echte YOLO-Inferenz um. Dafür müssen
-`ultralytics` + `torch` installiert sein:
+### 3.3 Starten
 
 ```bash
-pip install ultralytics torch torchvision
-# CUDA-Build siehe https://pytorch.org/get-started/locally/
+# Mit NVIDIA-GPU:
+docker compose -f docker-compose.pipeline.yml up -d --build
+
+# CPU-only Host:
+docker compose -f docker-compose.pipeline.yml -f docker-compose.pipeline.cpu.yml up -d --build
 ```
 
-Wenn die Pakete fehlen aber `WORKER_YOLO_MODEL` gesetzt ist, beendet sich der
-Worker mit Exit-Code 2 und einer klaren Fehlermeldung — kein stiller Stub-Fallback.
-
-### 2.4 Starten
+Logs prüfen:
 
 ```bash
-python -m web_pipeline.run
+docker compose -f docker-compose.pipeline.yml logs -f
 ```
 
-Erwartete Logs:
-
+Erwartete Zeilen:
 ```
-... starting worker name=lab-h200 -> https://sentinelcam.example.com
+... starting worker name=<WORKER_NAME> -> https://<web>
 ... worker connected; awaiting frames
 ```
 
-Im Admin-UI sollte der Worker auf **online** flippen und Heartbeats
-schicken. Sobald die Pi-Kamera (`sentinelCam-web`-Ingest) Frames liefert,
-laufen sie durch den Worker und du siehst das Overlay im Browser.
+Im Admin-UI sollte der Worker auf **online** flippen.
 
-### 2.5 Auto-Recording: Detection-Frames
+### 3.4 Auto-Recording: Detection-Frames
 
-Mit `WORKER_YOLO_MODEL` gesetzt schickt der Worker nach jedem Frame mit
-erkannten Klassen einen JSON-Text-Frame an den Web-Server:
-
-```json
-{"type": "detection", "camera_id": 1, "classes": ["person", "dog"], "ts": 1716315200000}
-```
-
-Throttle: maximal ein Detection-Frame pro Sekunde und Kamera — der Web-
-Server hat zusätzlich seinen eigenen per-Kamera-Cooldown (Default 30 s)
-über das Admin-Panel konfigurierbar.
-
-Das genügt, damit die im Web-Admin-Panel konfigurierten Auto-Recordings
-auslösen (Snapshot oder Clip, Eigentümer = erster Admin-User, sichtbar
-nur für Admins). Ohne echtes YOLO bleibt der Test-Fire-Knopf im Admin-
-Panel der einzige Weg, eine Auto-Aufnahme zu provozieren.
+Mit `WORKER_YOLO_MODEL` gesetzt schickt der Worker pro detektiertem Frame
+einen Detection-JSON-Frame zum Web-Server (max. 1/s pro Kamera). Der
+Web-Server hat zusätzlich seinen eigenen Cooldown (Default 30 s, im
+Admin-Panel konfigurierbar).
 
 ---
 
-## 3. Standalone-Modus (Worker bedient Browser direkt)
+## 4. Standalone-Modus (manuell)
 
-### 3.1 Lokal starten (Linux/macOS)
-
-```bash
-./run.sh
-```
-
-`run.sh` legt automatisch `.runtime/venv` an, installiert Abhängigkeiten und
-startet `webcam.py`. Optionen:
+### 4.1 `.env` vorbereiten
 
 ```bash
-./run.sh --source synthetic        # Testbild ohne Kamera
-./run.sh --source 0                # /dev/video0 oder Webcam-Index 0
-./run.sh --source /dev/video2      # konkretes Device
-./run.sh --host 0.0.0.0 --port 8080 # auf LAN binden
-./run.sh --stream webrtc           # nur WebRTC
-./run.sh --stream mjpeg            # nur MJPEG
-./run.sh --no-window               # ohne OpenCV-Preview
-./run.sh --help-web                # alle Flags
+cp .env.standalone.example .env
+chmod 600 .env
+$EDITOR .env        # WORKER_TOKEN (langer Zufallswert!), WORKER_SOURCE setzen
 ```
 
-### 3.2 Windows
-
-```powershell
-cd C:\path\to\sentinelCam-worker
-.\run.bat
-```
-
-`run.bat` macht dasselbe wie `run.sh` (venv, deps, start).
-
-### 3.3 Docker (nur Linux empfohlen)
+### 4.2 Starten
 
 ```bash
-docker compose -f docker-compose.worker-cam.yml up --build
+# Test ohne Kamera (synthetic source):
+docker compose -f docker-compose.worker.yml up -d --build
+
+# Mit Linux-USB-Webcam (/dev/video0):
+docker compose -f docker-compose.worker.yml -f docker-compose.worker-cam.yml up -d --build
+
+# Host-Network (für legacy Reverse-Proxies auf 127.0.0.1):
+docker compose -f docker-compose.worker.yml -f docker-compose.linux.yml up -d --build
 ```
 
-Webcam-Passthrough mounts `/dev/video0` ins Container. Für reines
-Test/Synthetic:
+Browser: `http://<host>:8080/health` → muss `OK` liefern. Streams und
+API-Endpoints siehe Tabelle in Abschnitt 6.
+
+### 4.3 Sicherheit Standalone
+
+`WORKER_TOKEN` setzt den Bearer-Token für `/api/cmd`, `/stream`, etc.
+Ohne Token ist der Server offen — nur in strikt vertrauten Netzen
+sinnvoll. `WORKER_ALLOWED_ORIGINS` schränkt CORS auf die UIs ein, die
+sich verbinden dürfen.
+
+---
+
+## 5. Updates
 
 ```bash
-docker compose -f docker-compose.worker.yml up --build
+git pull
+docker compose -f docker-compose.pipeline.yml build --pull   # bzw. worker.yml
+docker compose -f docker-compose.pipeline.yml up -d
 ```
 
-### 3.4 Konfiguration via `webcam.properties`
+`docker-compose.pipeline.yml` baut das Image lokal. Bei Bedarf alte
+Images aufräumen: `docker image prune`.
 
-Defaults setzt du in `webcam.properties` im Repo-Root. Wichtigste Keys:
+---
 
-```
-DEFAULT_SOURCE=0
-DEFAULT_WEB_HOST=127.0.0.1
-DEFAULT_WEB_PORT=8080
-DEFAULT_STREAM_MODE=auto           # auto | webrtc | mjpeg
-DEFAULT_WEBRTC_CODEC=auto          # auto | h264 | vp8 | vp9
-DEFAULT_WEBRTC_BITRATE_KBPS=-1     # -1 = auto
-DEFAULT_WEBRTC_FPS=0               # 0 = source fps
-DEFAULT_JPEG_QUALITY=88
-DEFAULT_TRACKER_MODE=simple
-DEFAULT_YOLO_HALF=1                # FP16 wenn GPU es kann
-DEFAULT_CONTEXT_ENABLED=0          # Ollama-Kontext aus
-
-# Sicherheit
-WEB_AUTH_TOKEN=langer-zufallswert  # Bearer für /api/cmd, /stream, ...
-WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
-```
-
-> Wenn `WEB_AUTH_TOKEN` gesetzt ist, müssen Browser/CLI-Clients den Header
-> `Authorization: Bearer <token>` schicken. Ohne Token bleibt der Server
-> offen — nur für strikt vertraute Netze geeignet.
-
-### 3.4 Endpoints (Standalone)
+## 6. Endpoints (Standalone)
 
 | URL | Zweck |
 |---|---|
@@ -218,45 +183,45 @@ WEB_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 
 ---
 
-## 4. Optional: Ollama-Kontext-Detektion
+## 7. Optional: Ohne Docker (Entwicklung)
 
-Aktivieren via `webcam.properties`:
+Pip/venv-Setup ist weiterhin möglich, aber **nicht** der empfohlene Pfad
+für Produktion. Kurzversion:
 
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-pipeline.txt
+# Pipeline-Mode mit YOLO:
+pip install ultralytics torch torchvision  # CUDA-Variante siehe pytorch.org
+set -a; source .env; set +a
+python -m web_pipeline.run
+# Standalone:
+./run.sh                 # Linux/macOS
+.\run.bat                # Windows
 ```
-DEFAULT_CONTEXT_ENABLED=1
-DEFAULT_CONTEXT_PROFILE=auto
-DEFAULT_CONTEXT_MODEL=auto         # bspw. gemma3:4b, llava, moondream
-DEFAULT_CONTEXT_INTERVAL=30.0      # Sekunden zwischen Inferenzläufen
-```
-
-Beim ersten Start wird `setup_ollama.py` gefragt, ob es Ollama-Modelle
-ziehen darf (`DEFAULT_CONTEXT_SETUP_OLLAMA=1`). Bei langsamer Bandbreite
-einmal manuell `ollama pull <model>` vorab laufen lassen.
 
 ---
 
-## 5. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Ursache / Fix |
 |---|---|
-| `worker connected` erscheint nicht | Token falsch, WSS-Zertifikat falsch, oder Web-Server unerreichbar. `curl -k $WEB_URL/healthz` testen. |
+| `nvidia-smi` läuft im Test-Container nicht | NVIDIA Container Toolkit fehlt — Abschnitt 1 wiederholen. |
+| Worker bleibt offline im Admin-UI | Token falsch oder `WEB_URL` nicht erreichbar. `docker compose logs -f` prüfen. |
+| `WEB_URL and WEB_TOKEN must be set` beim Start | `.env` nicht vorhanden oder fehlerhaft. `cat .env` prüfen. |
 | Pipeline läuft, aber kein Bild im Browser | Pi-Ingest fehlt — im Web-Admin „Cameras" prüfen, ob `last_frame_at` aktualisiert wird. |
-| Hohe CPU, niedrige FPS | `DEFAULT_YOLO_HALF=1` für GPU oder `DEFAULT_CPU_THREADS=<n>` setzen. Kleineres YOLO-Modell wählen. |
-| WebRTC-Standalone bringt schwarzes Bild | Browser-Konsole — meist fehlende `WEB_ALLOWED_ORIGINS` oder kein TURN-Server hinter NAT. |
-| Docker findet `/dev/video0` nicht | User ausserhalb `video`-Gruppe oder `docker-compose.worker-cam.yml` ohne Device-Mount. |
+| Hohe CPU, niedrige FPS | `WORKER_YOLO_HALF=1` für GPU, kleineres Modell (yolov8n) wählen. |
+| Docker findet `/dev/video0` nicht | User nicht in `video`-Gruppe oder Compose-Override fehlt. |
+| `read_only`-Container kann nichts schreiben | Schreibpfade sind als tmpfs/Volume gemountet — neue Pfade ggf. in `docker-compose.pipeline.yml` ergänzen. |
 
 ---
 
-## 6. Updates
+## 9. Sicherheits-Checkliste (Produktion)
 
-```bash
-git pull
-source .venv/bin/activate
-pip install -U -r requirements.txt -r requirements-pipeline.txt
-```
-
-Bei Docker:
-
-```bash
-docker compose -f docker-compose.worker.yml up -d --build
-```
+- [x] `.env` mit `chmod 600`; nicht ins Repo committen (`.gitignore` deckt das ab).
+- [x] Pipeline-Modus braucht **keine** offenen Inbound-Ports — Firewall: `ufw default deny incoming`.
+- [x] `WEB_URL` immer `https://` mit gültigem Zertifikat.
+- [x] Pro Worker einen eigenen Token im Web-Admin; rotieren bei Personalwechsel.
+- [x] Container läuft als non-root (UID 1000) mit `cap_drop: ALL`, `no-new-privileges`, `read_only: true` (Pipeline-Compose).
+- [x] Log-Rotation aktiv (json-file, 10 MB × 5).
+- [x] `restart: unless-stopped` sorgt für Auto-Start nach Reboot — Docker selbst per `systemctl enable docker` aktivieren.

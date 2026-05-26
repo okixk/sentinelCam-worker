@@ -1,0 +1,51 @@
+# Pipeline-Mode Image: outbound WSS client to sentinelCam-web with YOLO inference.
+# Use with docker-compose.pipeline.yml. For CPU-only, build with:
+#   docker build -f Dockerfile.pipeline --build-arg TORCH_VARIANT=cpu -t sentinelcam-worker-pipeline .
+# For NVIDIA GPU (default), keep TORCH_VARIANT=cu124.
+
+ARG BASE_IMAGE=nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM ${BASE_IMAGE}
+
+ARG TORCH_VARIANT=cu124
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    YOLO_CONFIG_DIR=/home/sentinelcam/.config/Ultralytics \
+    MPLCONFIGDIR=/home/sentinelcam/.cache/matplotlib
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3-pip python3.11-venv python3.11-dev \
+        libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 \
+        ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python3
+
+WORKDIR /app
+
+COPY requirements.txt requirements-pipeline.txt ./
+RUN pip install --no-cache-dir -r requirements-pipeline.txt && \
+    if [ "$TORCH_VARIANT" = "cpu" ]; then \
+        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+            torch torchvision; \
+    else \
+        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/${TORCH_VARIANT} \
+            torch torchvision; \
+    fi && \
+    pip install --no-cache-dir ultralytics
+
+RUN groupadd -g 1000 sentinelcam && \
+    useradd -u 1000 -g sentinelcam -m -s /usr/sbin/nologin sentinelcam && \
+    mkdir -p /home/sentinelcam/.config/Ultralytics \
+             /home/sentinelcam/.cache && \
+    chown -R sentinelcam:sentinelcam /home/sentinelcam
+
+COPY --chown=sentinelcam:sentinelcam web_pipeline ./web_pipeline
+
+USER sentinelcam
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD pgrep -f "web_pipeline.run" >/dev/null || exit 1
+
+ENTRYPOINT ["python", "-m", "web_pipeline.run"]

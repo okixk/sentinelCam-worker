@@ -2,6 +2,8 @@
 .env
 .env.*
 .env/
+!.env.pipeline.example
+!.env.standalone.example
 .DS_Store
 __pycache__
 *.pyc

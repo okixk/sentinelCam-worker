@@ -1,0 +1,55 @@
+# Pipeline-Mode Compose: worker dials outbound to sentinelCam-web.
+# No inbound ports are required.
+#
+# Quick start:
+#   cp .env.pipeline.example .env
+#   # edit .env, set WEB_URL + WEB_TOKEN
+#   docker compose -f docker-compose.pipeline.yml up -d --build
+#
+# For CPU-only hosts override the build arg and remove the gpus reservation:
+#   docker compose -f docker-compose.pipeline.yml -f docker-compose.pipeline.cpu.yml up -d --build
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+    image: sentinelcam-worker-pipeline:latest
+    container_name: sentinelcam-worker
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - yolo-cache:/home/sentinelcam/.cache
+      - yolo-config:/home/sentinelcam/.config
+      - ./models:/app/models:ro
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "web_pipeline.run"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  yolo-cache:
+  yolo-config:
