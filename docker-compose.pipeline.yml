@@ -31,9 +31,11 @@ services:
     tmpfs:
       - /tmp:size=64m,mode=1777
     volumes:
+      # Writable cache for ultralytics auto-downloaded weights + matplotlib cache.
+      # WORKER_YOLO_CACHE_DIR (defaults to ~/.cache/yolo-models) is chdir'd into
+      # before YOLO instantiation so downloads land here and survive restarts.
       - yolo-cache:/home/sentinelcam/.cache
       - yolo-config:/home/sentinelcam/.config
-      - ./models:/app/models:ro
     cap_drop:
       - ALL
     security_opt:

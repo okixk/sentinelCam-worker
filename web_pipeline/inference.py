@@ -237,6 +237,20 @@ def load_yolo_processor() -> Optional[YoloInference]:
     if not model_path:
         return None
     pose_path = (os.environ.get("WORKER_YOLO_POSE_MODEL") or "").strip() or None
+
+    # Ultralytics writes auto-downloaded weights to the current working
+    # directory. Containers with a read-only root FS need that to be a
+    # writable, ideally persistent, location so the download survives
+    # restarts and doesn't crash on read-only /app.
+    cache_dir = (os.environ.get("WORKER_YOLO_CACHE_DIR") or "").strip()
+    if not cache_dir:
+        cache_dir = os.path.expanduser("~/.cache/yolo-models")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        os.chdir(cache_dir)
+    except OSError as exc:
+        log.warning("could not chdir to cache dir %s: %s", cache_dir, exc)
+
     try:
         return YoloInference(
             model_path,
