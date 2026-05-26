@@ -68,6 +68,7 @@ class WorkerConfig:
     heartbeat_interval: float = 5.0
     reconnect_initial: float = 1.0
     reconnect_max: float = 30.0
+    tls_verify: bool = True
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -75,11 +76,14 @@ class WorkerConfig:
         token = (os.environ.get("WEB_TOKEN") or "").strip()
         if not url or not token:
             raise SystemExit("WEB_URL and WEB_TOKEN must be set in the environment")
+        tls_verify_raw = (os.environ.get("WEB_TLS_VERIFY") or "").strip().lower()
+        tls_verify = tls_verify_raw not in ("0", "false", "no", "off")
         return cls(
             web_url=url.rstrip("/"),
             token=token,
             name=(os.environ.get("WORKER_NAME") or "worker-default").strip() or "worker-default",
             jpeg_quality=int(os.environ.get("JPEG_QUALITY", "88")),
+            tls_verify=tls_verify,
         )
 
 
@@ -136,6 +140,15 @@ async def run_worker(config: WorkerConfig, processor: Optional[FrameProcessor] =
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, _stop_handler)
 
+    ssl_param: object = True
+    if not config.tls_verify:
+        log.warning(
+            "WEB_TLS_VERIFY=0 — TLS certificate verification disabled. "
+            "Connection is encrypted but vulnerable to MITM. Use only as a "
+            "temporary workaround until a trusted certificate is in place."
+        )
+        ssl_param = False
+
     while not stop.is_set():
         try:
             log.info("connecting to %s", config.web_url)
@@ -146,6 +159,7 @@ async def run_worker(config: WorkerConfig, processor: Optional[FrameProcessor] =
                     headers={"Authorization": f"Bearer {config.token}"},
                     heartbeat=20,
                     max_msg_size=8 * 1024 * 1024,
+                    ssl=ssl_param,
                 ) as ws:
                     backoff = config.reconnect_initial
                     log.info("worker connected; awaiting frames")
