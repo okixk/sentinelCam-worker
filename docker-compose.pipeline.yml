@@ -20,6 +20,13 @@ services:
     env_file:
       - path: .env
         required: true
+    # VPN/LAN-direct: resolve the public hostname to the web server's directly
+    # reachable IP so the worker dials the origin (over VPN/LAN) and bypasses
+    # Cloudflare's unreliable WebSocket proxying (which causes periodic
+    # "keepalive ping timeout" drops). Values come from .env (WEB_HOSTNAME,
+    # WEB_DIRECT_IP). Remove this block if you intentionally route via Cloudflare.
+    extra_hosts:
+      - "${WEB_HOSTNAME:-sentinelcam.ch}:${WEB_DIRECT_IP:?set WEB_DIRECT_IP in .env (web server IP), or remove the extra_hosts block to use Cloudflare}"
     deploy:
       resources:
         reservations:
