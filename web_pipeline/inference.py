@@ -88,6 +88,8 @@ class YoloInference:
         imgsz: int = 640,
         device: Optional[str] = None,
         half: bool = False,
+        classes: Optional[list[int]] = None,
+        max_det: int = 100,
     ) -> None:
         from ultralytics import YOLO  # type: ignore  # imported here so the
         # module can still be imported on hosts without ultralytics installed
@@ -100,10 +102,16 @@ class YoloInference:
         self._imgsz = int(imgsz)
         self._device = device or _autodetect_device()
         self._half = bool(half) and self._device.startswith("cuda")
+        # Optional COCO class allow-list (e.g. [0] = person only). Filtering at
+        # inference reduces low-value boxes that clutter the overlay and pollute
+        # auto-recording triggers.
+        self._classes = list(classes) if classes else None
+        self._max_det = int(max_det)
 
         log.info(
-            "YOLO ready: model=%s pose=%s device=%s half=%s conf=%.2f",
+            "YOLO ready: model=%s pose=%s device=%s half=%s conf=%.2f classes=%s",
             model_path, pose_model_path or "off", self._device, self._half, conf,
+            self._classes if self._classes is not None else "all",
         )
 
     async def __call__(self, frame_bgr: np.ndarray, capture_ms: int) -> ProcessedFrame:
@@ -119,6 +127,8 @@ class YoloInference:
                 iou=self._iou,
                 device=self._device,
                 half=self._half,
+                classes=self._classes,
+                max_det=self._max_det,
                 verbose=False,
             )
         except Exception:
@@ -238,6 +248,17 @@ def load_yolo_processor() -> Optional[YoloInference]:
         return None
     pose_path = (os.environ.get("WORKER_YOLO_POSE_MODEL") or "").strip() or None
 
+    # Optional COCO class allow-list, e.g. WORKER_YOLO_CLASSES="0" (person only)
+    # or "0,1,2,15,16" — reduces clutter and false auto-record triggers.
+    classes_raw = (os.environ.get("WORKER_YOLO_CLASSES") or "").strip()
+    classes: Optional[list[int]] = None
+    if classes_raw:
+        try:
+            classes = [int(c) for c in classes_raw.replace(" ", "").split(",") if c]
+        except ValueError:
+            log.warning("ignoring invalid WORKER_YOLO_CLASSES=%r", classes_raw)
+            classes = None
+
     # Ultralytics writes auto-downloaded weights to the current working
     # directory. Containers with a read-only root FS need that to be a
     # writable, ideally persistent, location so the download survives
@@ -260,6 +281,8 @@ def load_yolo_processor() -> Optional[YoloInference]:
             imgsz=int(os.environ.get("WORKER_YOLO_IMGSZ", "640")),
             device=(os.environ.get("WORKER_YOLO_DEVICE") or "").strip() or None,
             half=os.environ.get("WORKER_YOLO_HALF", "").strip().lower() in ("1", "true", "yes"),
+            classes=classes,
+            max_det=int(os.environ.get("WORKER_YOLO_MAX_DET", "100")),
         )
     except ImportError as exc:
         raise RuntimeError(

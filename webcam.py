@@ -18,6 +18,7 @@ import re
 import sys
 import time
 import shutil
+import signal
 import threading
 import queue
 from dataclasses import dataclass
@@ -1896,6 +1897,21 @@ def main():
     stop_event = threading.Event()
     shutdown_done = threading.Event()
 
+    # Translate SIGTERM/SIGINT (docker stop, Ctrl+C) into the graceful stop_event
+    # so cap.release(), context_detector.stop(), cv2.destroyAllWindows() and the
+    # WebRTC peer-connection drain actually run within the container grace window
+    # instead of the worker being SIGKILLed (leaking the /dev/video handle).
+    def _signal_stop(signum, _frame):  # noqa: ANN001
+        _log.info("received signal %s; initiating graceful shutdown", signum)
+        stop_event.set()
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _signal_stop)
+        except (ValueError, OSError):
+            # Not running on the main thread, or unsupported on this platform.
+            pass
+
     # Web controls (only meaningful in --web mode, but safe elsewhere)
     cmd_q: "queue.SimpleQueue[object]" = queue.SimpleQueue()
     state_lock = threading.Lock()
@@ -2381,7 +2397,9 @@ def main():
         nonlocal det_weights, pose_weights, pose_enabled
         nonlocal overlay_enabled, inference_enabled, _saved_pose_enabled, _saved_overlay_enabled
         nonlocal force_context_next_frame
+        nonlocal cap
 
+        consecutive_read_failures = 0
         try:
             while not stop_event.is_set():
                 # Apply pending commands from the web UI (non-blocking)
@@ -2558,6 +2576,38 @@ def main():
                 ret, frame = cap.read()
                 capture_done = time.time()
                 if not ret or frame is None:
+                    consecutive_read_failures += 1
+                    # OpenCV does not recover a dead handle (USB unplug, RTSP
+                    # drop) on its own, so after ~2s of failures release it and
+                    # reopen with bounded exponential backoff instead of looping
+                    # forever on the broken capture.
+                    if consecutive_read_failures >= 8:
+                        backoff = min(10.0, 0.5 * (2 ** min(consecutive_read_failures - 8, 5)))
+                        _update_state(
+                            busy=False,
+                            busy_text=None,
+                            last_error=f"Camera read failed; reopening in {backoff:.1f}s...",
+                            last_error_ts=time.time(),
+                            worker_alive=True,
+                        )
+                        try:
+                            cap.release()
+                        except Exception:
+                            pass
+                        if stop_event.wait(backoff):
+                            break
+                        try:
+                            cap = _open_capture(src, args.width, args.height, requested_fps=capture_target_fps)
+                            try:
+                                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                            except Exception:
+                                pass
+                            if cap.isOpened():
+                                _log.info("camera reopened after %d read failures", consecutive_read_failures)
+                                consecutive_read_failures = 0
+                        except Exception:
+                            _log.debug("camera reopen attempt failed", exc_info=True)
+                        continue
                     _update_state(
                         busy=False,
                         busy_text=None,
@@ -2567,6 +2617,7 @@ def main():
                     )
                     time.sleep(0.25)
                     continue
+                consecutive_read_failures = 0
 
                 # Burn in a capture timestamp immediately after grabbing the frame,
                 # so it becomes part of the raw source before any YOLO processing.

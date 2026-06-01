@@ -4,6 +4,14 @@
 aiohttp>=3.9
 opencv-python-headless>=4.10
 numpy>=1.26
+# PyAV: used to GPU-encode the processed frame to H.264 for the live lane.
+# It probes for NVENC/AMF/QSV/VideoToolbox and falls back to libx264 (CPU).
+# NOTE: PyAV's prebuilt wheels bundle a generic ffmpeg WITHOUT NVENC, so on a
+# GPU box you get libx264 unless PyAV is built against an NVENC-enabled ffmpeg
+# (see SETUP.md "GPU H.264"). Set WORKER_H264=0 to disable the lane entirely
+# (the web then serves MJPEG).
+av==14.1.0; python_version < "3.13"
+av==16.1.0; python_version >= "3.13"
 
 # Optional — only needed when WORKER_YOLO_MODEL is set so real inference
 # runs in pipeline mode. Without these installed the worker stays on the
