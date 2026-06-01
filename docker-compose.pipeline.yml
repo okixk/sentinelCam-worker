@@ -20,13 +20,15 @@ services:
     env_file:
       - path: .env
         required: true
-    # VPN/LAN-direct: resolve the public hostname to the web server's directly
-    # reachable IP so the worker dials the origin (over VPN/LAN) and bypasses
-    # Cloudflare's unreliable WebSocket proxying (which causes periodic
-    # "keepalive ping timeout" drops). Values come from .env (WEB_HOSTNAME,
-    # WEB_DIRECT_IP). Remove this block if you intentionally route via Cloudflare.
-    extra_hosts:
-      - "${WEB_HOSTNAME:-sentinelcam.ch}:${WEB_DIRECT_IP:?set WEB_DIRECT_IP in .env (web server IP), or remove the extra_hosts block to use Cloudflare}"
+    # Direct connection (no Cloudflare).
+    # Preferred: set WEB_URL=https://ie-lis050 in .env — the web server's
+    # internal hostname (listed in Traefik's router rule). The worker resolves
+    # it via your network DNS, so nothing is needed here.
+    # Fallback — only if THIS container cannot resolve that name via DNS: keep
+    # WEB_URL=https://sentinelcam.ch, set WEB_HOSTNAME + WEB_DIRECT_IP in .env,
+    # and uncomment the two lines below to pin the IP:
+    # extra_hosts:
+    #   - "${WEB_HOSTNAME:-sentinelcam.ch}:${WEB_DIRECT_IP:?set WEB_DIRECT_IP in .env}"
     deploy:
       resources:
         reservations:
