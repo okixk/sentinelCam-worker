@@ -68,11 +68,15 @@ class ProcessedFrame:
     ``overlay`` is the BGR image to ship back to the web server. ``classes``
     is the set of distinct class labels detected on this frame; the client
     forwards them to the web via a ``{"type":"detection",...}`` JSON message
-    so auto-recording can fire.
+    so auto-recording can fire. ``boxes`` carries the same detections as
+    normalized coordinates (``{x, y, w, h, label, conf}``, all 0..1) so the
+    browser can draw the overlay client-side on streams the worker does not
+    re-encode (the edge-H.264 live lane).
     """
 
     overlay: np.ndarray
     classes: list[str] = field(default_factory=list)
+    boxes: list[dict] = field(default_factory=list)
 
 
 class YoloInference:
@@ -140,6 +144,8 @@ class YoloInference:
         names = result.names if hasattr(result, "names") else self._model.names
         overlay = frame_bgr.copy()
         seen: set[str] = set()
+        norm_boxes: list[dict] = []
+        frame_h, frame_w = frame_bgr.shape[:2]
 
         if boxes is not None and len(boxes) > 0:
             xyxy = boxes.xyxy.cpu().numpy()
@@ -148,6 +154,14 @@ class YoloInference:
             for (x1, y1, x2, y2), cls_id, conf in zip(xyxy, cls_ids, confs):
                 label = self._class_label(names, int(cls_id))
                 seen.add(label)
+                norm_boxes.append({
+                    "x": round(float(x1) / frame_w, 4),
+                    "y": round(float(y1) / frame_h, 4),
+                    "w": round(float(x2 - x1) / frame_w, 4),
+                    "h": round(float(y2 - y1) / frame_h, 4),
+                    "label": label,
+                    "conf": round(float(conf), 3),
+                })
                 self._draw_box(overlay, int(x1), int(y1), int(x2), int(y2),
                                label=f"{label} {conf:.2f}", color_seed=int(cls_id))
 
@@ -176,7 +190,7 @@ class YoloInference:
                             confs[i] if confs is not None else None,
                         )
 
-        return ProcessedFrame(overlay=overlay, classes=sorted(seen))
+        return ProcessedFrame(overlay=overlay, classes=sorted(seen), boxes=norm_boxes)
 
     @staticmethod
     def _class_label(names, cls_id: int) -> str:

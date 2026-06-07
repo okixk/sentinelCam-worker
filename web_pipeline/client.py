@@ -384,9 +384,11 @@ async def _handle_binary(
         if isinstance(result, ProcessedFrame):
             overlay = result.overlay
             classes = result.classes
+            det_boxes = getattr(result, "boxes", [])
         else:
             overlay = result
             classes = []
+            det_boxes = []
     except Exception:
         log.exception("frame processing failed")
         return
@@ -423,7 +425,7 @@ async def _handle_binary(
             return
 
     if classes:
-        await _maybe_emit_detection(ws, frame.camera_id, classes, stats, last_detection_sent)
+        await _maybe_emit_detection(ws, frame.camera_id, classes, det_boxes, stats, last_detection_sent)
 
 
 def _jpeg_due(camera_id: int, config: WorkerConfig, last_jpeg_sent: dict[int, float]) -> bool:
@@ -458,6 +460,7 @@ async def _maybe_emit_detection(
     ws: aiohttp.ClientWebSocketResponse,
     camera_id: int,
     classes: list[str],
+    boxes: list[dict],
     stats: _Stats,
     last_detection_sent: dict[int, float],
 ) -> None:
@@ -473,6 +476,9 @@ async def _maybe_emit_detection(
             "proto": PROTOCOL_VERSION,
             "camera_id": int(camera_id),
             "classes": list(classes),
+            # Normalized {x,y,w,h,label,conf} so the browser can draw the
+            # overlay client-side (edge-H.264 streams bypass our re-encode).
+            "boxes": list(boxes or []),
             "ts": now_ms(),
         })
         stats.detections_sent += 1
